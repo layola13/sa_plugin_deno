@@ -1,0 +1,62 @@
+// Deno compatibility plugin public SA interface.
+// Status: native replacement surface implemented by libdeno.so; this does not call Deno.
+
+@extern sa_deno_plugin_free_buffer(ptr: ptr, len: u64) -> u32
+@extern sa_deno_plugin_hostname(&out_ptr: ptr, &out_len: ptr) -> u32
+@extern sa_deno_plugin_os_release(&out_ptr: ptr, &out_len: ptr) -> u32
+@extern sa_deno_plugin_os_uptime(&out_uptime: ptr) -> u32
+@extern sa_deno_plugin_loadavg(out_load: ptr) -> u32
+@extern sa_deno_plugin_system_memory_info(&out_ptr: ptr, &out_len: ptr) -> u32
+@extern sa_deno_plugin_network_interfaces(&out_ptr: ptr, &out_len: ptr) -> u32
+@extern sa_deno_plugin_pid(&out_pid: ptr) -> u32
+@extern sa_deno_plugin_ppid(&out_ppid: ptr) -> u32
+@extern sa_deno_plugin_uid(&out_uid: ptr) -> u32
+@extern sa_deno_plugin_gid(&out_gid: ptr) -> u32
+@extern sa_deno_plugin_exec_path(&out_ptr: ptr, &out_len: ptr) -> u32
+@extern sa_deno_plugin_memory_usage(&out_ptr: ptr, &out_len: ptr) -> u32
+@extern sa_deno_plugin_env_get(&key: ptr, key_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32
+@extern sa_deno_plugin_env_set(&key: ptr, key_len: u64, &value: ptr, value_len: u64) -> u32
+@extern sa_deno_plugin_env_delete(&key: ptr, key_len: u64) -> u32
+@extern sa_deno_plugin_read_text_file(&path: ptr, path_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32
+@extern sa_deno_plugin_read_file_base64(&path: ptr, path_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32
+@extern sa_deno_plugin_write_text_file(&path: ptr, path_len: u64, &data: ptr, data_len: u64) -> u32
+@extern sa_deno_plugin_random_uuid(&out_ptr: ptr, &out_len: ptr) -> u32
+@extern sa_deno_plugin_args_json(&out_ptr: ptr, &out_len: ptr) -> u32
+@extern sa_deno_plugin_btoa(&data: ptr, len: u64, &out_ptr: ptr, &out_len: ptr) -> u32
+@extern sa_deno_plugin_atob(&data: ptr, len: u64, &out_ptr: ptr, &out_len: ptr) -> u32
+@extern sa_deno_plugin_text_encode(&data: ptr, len: u64, &out_ptr: ptr, &out_len: ptr) -> u32
+@extern sa_deno_plugin_text_decode(&data: ptr, len: u64, &out_ptr: ptr, &out_len: ptr) -> u32
+@extern sa_deno_plugin_version_json(&out_ptr: ptr, &out_len: ptr) -> u32
+@extern sa_deno_plugin_build_json(&out_ptr: ptr, &out_len: ptr) -> u32
+@extern sa_deno_plugin_now_ms(&out_ms: ptr) -> u32
+@extern sa_deno_plugin_now_ns(&out_ns: ptr) -> u32
+@extern sa_deno_plugin_mkdir(&path: ptr, path_len: u64, recursive: u8) -> u32
+@extern sa_deno_plugin_remove(&path: ptr, path_len: u64, recursive: u8) -> u32
+@extern sa_deno_plugin_copy_file(&src: ptr, src_len: u64, &dst: ptr, dst_len: u64) -> u32
+@extern sa_deno_plugin_read_dir_json(&path: ptr, path_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32
+@extern sa_deno_plugin_lstat_json(&path: ptr, path_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32
+@extern sa_deno_plugin_write_file_base64(&path: ptr, path_len: u64, &base64: ptr, base64_len: u64) -> u32
+@extern sa_deno_plugin_command_exec(argv: ptr, argv_len: u64, &cwd: ptr, cwd_len: u64, &out_code: ptr, &out_stdout_ptr: ptr, &out_stdout_len: ptr, &out_stderr_ptr: ptr, &out_stderr_len: ptr) -> u32
+
+#def DENO_HTTP_METHOD_GET = 1
+#def DENO_HTTP_METHOD_POST = 2
+#def DENO_HTTP_METHOD_PUT = 3
+#def DENO_HTTP_METHOD_DELETE = 4
+
+// --- New migrated Deno FFI APIs ---
+@extern sa_deno_plugin_cwd(&out_ptr: ptr, &out_len: ptr) -> u32
+@extern sa_deno_plugin_chdir(&path: ptr, path_len: u64) -> u32
+@extern sa_deno_plugin_version_deno(&out_ptr: ptr, &out_len: ptr) -> u32
+@extern sa_deno_plugin_build_os(&out_ptr: ptr, &out_len: ptr) -> u32
+@extern sa_deno_plugin_build_platform_family(&out_ptr: ptr, &out_len: ptr) -> u32
+@extern sa_deno_plugin_date_now_iso(&out_ptr: ptr, &out_len: ptr) -> u32
+@extern sa_deno_plugin_make_temp_dir(&prefix: ptr, prefix_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32
+@extern sa_deno_plugin_make_temp_file(&prefix: ptr, prefix_len: u64, &suffix: ptr, suffix_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32
+
+@extern sa_deno_plugin_chat_sse_to_responses(&chat_body: ptr, chat_body_len: u64, &req_body: ptr, req_body_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32
+@extern sa_deno_plugin_chat_json_to_responses(&chat_body: ptr, chat_body_len: u64, &req_body: ptr, req_body_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32
+@extern sa_deno_plugin_responses_sse_normalize(&sse_body: ptr, sse_body_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32
+@extern sa_deno_plugin_responses_json_normalize(&body: ptr, body_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32
+@extern sa_deno_plugin_responses_request_normalize(&body: ptr, body_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32
+@extern sa_deno_plugin_responses_chat_fallback_request(&body: ptr, body_len: u64, &default_model: ptr, default_model_len: u64, plan_mode_like: u8, &out_ptr: ptr, &out_len: ptr) -> u32
+@extern sa_deno_plugin_jsonrpc_params_string_literal(&body: ptr, body_len: u64, &key: ptr, key_len: u64, &fallback: ptr, fallback_len: u64, emit_null_if_missing: u8, &out_ptr: ptr, &out_len: ptr) -> u32
