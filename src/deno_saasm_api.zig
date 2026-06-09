@@ -911,6 +911,20 @@ pub export fn sa_deno_plugin_responses_sse_normalize(
     return returnOwnedBuffer(normalized, out_ptr, out_len);
 }
 
+pub export fn sa_deno_plugin_responses_sse_normalize_with_request(
+    sse_body_ptr: ?[*]const u8,
+    sse_body_len: u64,
+    req_body_ptr: ?[*]const u8,
+    req_body_len: u64,
+    out_ptr: ?*?[*]const u8,
+    out_len: ?*u64,
+) u32 {
+    const sse_body = inputBytes(sse_body_ptr, sse_body_len) orelse return 2;
+    const req_body = inputBytes(req_body_ptr, req_body_len) orelse return 2;
+    const normalized = hubproxy_compat.responsesSseNormalizeWithRequest(sse_body, req_body) catch return 2;
+    return returnOwnedBuffer(normalized, out_ptr, out_len);
+}
+
 pub export fn sa_deno_plugin_responses_json_normalize(
     body_ptr: ?[*]const u8,
     body_len: u64,
@@ -919,6 +933,20 @@ pub export fn sa_deno_plugin_responses_json_normalize(
 ) u32 {
     const body = inputBytes(body_ptr, body_len) orelse return 2;
     const normalized = hubproxy_compat.responsesJsonNormalize(body) catch return 2;
+    return returnOwnedBuffer(normalized, out_ptr, out_len);
+}
+
+pub export fn sa_deno_plugin_responses_json_normalize_with_request(
+    body_ptr: ?[*]const u8,
+    body_len: u64,
+    req_body_ptr: ?[*]const u8,
+    req_body_len: u64,
+    out_ptr: ?*?[*]const u8,
+    out_len: ?*u64,
+) u32 {
+    const body = inputBytes(body_ptr, body_len) orelse return 2;
+    const req_body = inputBytes(req_body_ptr, req_body_len) orelse return 2;
+    const normalized = hubproxy_compat.responsesJsonNormalizeWithRequest(body, req_body) catch return 2;
     return returnOwnedBuffer(normalized, out_ptr, out_len);
 }
 
@@ -947,6 +975,63 @@ pub export fn sa_deno_plugin_responses_chat_fallback_request(
     const converted = hubproxy_compat.responsesChatFallbackRequest(body, default_model, plan_mode_like != 0) catch return 2;
     const actual = converted orelse return 1;
     return returnOwnedBuffer(actual, out_ptr, out_len);
+}
+
+pub export fn sa_deno_plugin_mcp_server_status_list(
+    body_ptr: ?[*]const u8,
+    body_len: u64,
+    out_ptr: ?*?[*]const u8,
+    out_len: ?*u64,
+) u32 {
+    const body = inputBytes(body_ptr, body_len) orelse return 2;
+    const status_list = hubproxy_compat.mcpServerStatusList(body) catch |err| switch (err) {
+        error.InvalidMcpStatusParams => return 3,
+        else => return 2,
+    };
+    return returnOwnedBuffer(status_list, out_ptr, out_len);
+}
+
+pub export fn sa_deno_plugin_mcp_tool_call(
+    body_ptr: ?[*]const u8,
+    body_len: u64,
+    out_ptr: ?*?[*]const u8,
+    out_len: ?*u64,
+) u32 {
+    const body = inputBytes(body_ptr, body_len) orelse return 2;
+    if (!hubproxy_compat.mcpToolCallHasRequiredParams(body)) return 3;
+    const result = hubproxy_compat.mcpToolCall(body) catch |err| switch (err) {
+        error.McpToolExecutionFailed => return 4,
+        else => return 2,
+    };
+    const actual = result orelse return 1;
+    return returnOwnedBuffer(actual, out_ptr, out_len);
+}
+
+pub export fn sa_deno_plugin_mcp_resource_read(
+    body_ptr: ?[*]const u8,
+    body_len: u64,
+    out_ptr: ?*?[*]const u8,
+    out_len: ?*u64,
+) u32 {
+    const body = inputBytes(body_ptr, body_len) orelse return 2;
+    if (!hubproxy_compat.mcpResourceReadHasRequiredParams(body)) return 3;
+    const result = hubproxy_compat.mcpResourceRead(body) catch |err| switch (err) {
+        error.McpToolExecutionFailed => return 4,
+        else => return 2,
+    };
+    const actual = result orelse return 1;
+    return returnOwnedBuffer(actual, out_ptr, out_len);
+}
+
+pub export fn sa_deno_plugin_infer_collaboration_mode(
+    body_ptr: ?[*]const u8,
+    body_len: u64,
+    out_mode: ?*u32,
+) u32 {
+    const body = inputBytes(body_ptr, body_len) orelse return 2;
+    const mode_slot = out_mode orelse return 2;
+    mode_slot.* = hubproxy_compat.inferCollaborationModeCode(body);
+    return 0;
 }
 
 pub export fn sa_deno_plugin_jsonrpc_params_string_literal(

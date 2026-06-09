@@ -56,7 +56,13 @@
 @extern sa_deno_plugin_chat_sse_to_responses(&chat_body: ptr, chat_body_len: u64, &req_body: ptr, req_body_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32
 @extern sa_deno_plugin_chat_json_to_responses(&chat_body: ptr, chat_body_len: u64, &req_body: ptr, req_body_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32
 @extern sa_deno_plugin_responses_sse_normalize(&sse_body: ptr, sse_body_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32
+@extern sa_deno_plugin_responses_sse_normalize_with_request(&sse_body: ptr, sse_body_len: u64, &req_body: ptr, req_body_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32
 @extern sa_deno_plugin_responses_json_normalize(&body: ptr, body_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32
+@extern sa_deno_plugin_responses_json_normalize_with_request(&body: ptr, body_len: u64, &req_body: ptr, req_body_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32
 @extern sa_deno_plugin_responses_request_normalize(&body: ptr, body_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32
 @extern sa_deno_plugin_responses_chat_fallback_request(&body: ptr, body_len: u64, &default_model: ptr, default_model_len: u64, plan_mode_like: u8, &out_ptr: ptr, &out_len: ptr) -> u32
+@extern sa_deno_plugin_mcp_server_status_list(&body: ptr, body_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32
+@extern sa_deno_plugin_mcp_tool_call(&body: ptr, body_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32
+@extern sa_deno_plugin_mcp_resource_read(&body: ptr, body_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32
+@extern sa_deno_plugin_infer_collaboration_mode(&body: ptr, body_len: u64, &out_mode: ptr) -> u32
 @extern sa_deno_plugin_jsonrpc_params_string_literal(&body: ptr, body_len: u64, &key: ptr, key_len: u64, &fallback: ptr, fallback_len: u64, emit_null_if_missing: u8, &out_ptr: ptr, &out_len: ptr) -> u32

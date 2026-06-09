@@ -464,6 +464,28 @@
     %out_response = load __deno_http_response_slot+0 as ptr
 [END_MACRO]
 
+[MACRO] DENO_HTTP_REQUEST_SEND_ASYNC %out_status, %out_operation, %request
+    __deno_http_async_op_slot = stack_alloc 8
+    %out_status = call @sa_http_client_req_send_async(%request, &__deno_http_async_op_slot)
+    %out_operation = load __deno_http_async_op_slot+0 as ptr
+[END_MACRO]
+
+[MACRO] DENO_HTTP_REQUEST_ASYNC_POLL %out_status, %out_ready, %operation
+    __deno_http_async_ready_slot = stack_alloc 1
+    %out_status = call @sa_http_client_async_poll(%operation, &__deno_http_async_ready_slot)
+    %out_ready = load __deno_http_async_ready_slot+0 as u8
+[END_MACRO]
+
+[MACRO] DENO_HTTP_REQUEST_ASYNC_TAKE_RESPONSE %out_status, %out_response, %operation
+    __deno_http_async_response_slot = stack_alloc 8
+    %out_status = call @sa_http_client_async_take_response(%operation, &__deno_http_async_response_slot)
+    %out_response = load __deno_http_async_response_slot+0 as ptr
+[END_MACRO]
+
+[MACRO] DENO_HTTP_REQUEST_ASYNC_FREE %out_status, %operation
+    %out_status = call @sa_http_client_async_free(^%operation)
+[END_MACRO]
+
 [MACRO] DENO_HTTP_RESPONSE_STATUS %out_status_code, %response
     %out_status_code = call @sa_http_client_resp_status(%response)
 [END_MACRO]
@@ -730,12 +752,28 @@
     %out_len = load __dr_sse_len_slot+0 as u64
 [END_MACRO]
 
+[MACRO] DENO_RESPONSES_SSE_NORMALIZE_WITH_REQUEST %out_ptr, %out_len, %out_status, %sse_body, %sse_body_len, %req_body, %req_body_len
+    __dr_sse_req_ptr_slot = stack_alloc 8
+    __dr_sse_req_len_slot = stack_alloc 8
+    %out_status = call @sa_deno_plugin_responses_sse_normalize_with_request(&%sse_body, %sse_body_len, &%req_body, %req_body_len, &__dr_sse_req_ptr_slot, &__dr_sse_req_len_slot)
+    %out_ptr = load __dr_sse_req_ptr_slot+0 as ptr
+    %out_len = load __dr_sse_req_len_slot+0 as u64
+[END_MACRO]
+
 [MACRO] DENO_RESPONSES_JSON_NORMALIZE %out_ptr, %out_len, %out_status, %body, %body_len
     __dr_json_ptr_slot = stack_alloc 8
     __dr_json_len_slot = stack_alloc 8
     %out_status = call @sa_deno_plugin_responses_json_normalize(&%body, %body_len, &__dr_json_ptr_slot, &__dr_json_len_slot)
     %out_ptr = load __dr_json_ptr_slot+0 as ptr
     %out_len = load __dr_json_len_slot+0 as u64
+[END_MACRO]
+
+[MACRO] DENO_RESPONSES_JSON_NORMALIZE_WITH_REQUEST %out_ptr, %out_len, %out_status, %body, %body_len, %req_body, %req_body_len
+    __dr_json_req_ptr_slot = stack_alloc 8
+    __dr_json_req_len_slot = stack_alloc 8
+    %out_status = call @sa_deno_plugin_responses_json_normalize_with_request(&%body, %body_len, &%req_body, %req_body_len, &__dr_json_req_ptr_slot, &__dr_json_req_len_slot)
+    %out_ptr = load __dr_json_req_ptr_slot+0 as ptr
+    %out_len = load __dr_json_req_len_slot+0 as u64
 [END_MACRO]
 
 [MACRO] DENO_RESPONSES_REQUEST_NORMALIZE %out_ptr, %out_len, %out_status, %body, %body_len
@@ -752,6 +790,30 @@
     %out_status = call @sa_deno_plugin_responses_chat_fallback_request(&%body, %body_len, &%default_model, %default_model_len, %plan_mode_like, &__dr_cf_ptr_slot, &__dr_cf_len_slot)
     %out_ptr = load __dr_cf_ptr_slot+0 as ptr
     %out_len = load __dr_cf_len_slot+0 as u64
+[END_MACRO]
+
+[MACRO] DENO_MCP_SERVER_STATUS_LIST %out_ptr, %out_len, %out_status, %body, %body_len
+    __dmcp_status_ptr_slot = stack_alloc 8
+    __dmcp_status_len_slot = stack_alloc 8
+    %out_status = call @sa_deno_plugin_mcp_server_status_list(&%body, %body_len, &__dmcp_status_ptr_slot, &__dmcp_status_len_slot)
+    %out_ptr = load __dmcp_status_ptr_slot+0 as ptr
+    %out_len = load __dmcp_status_len_slot+0 as u64
+[END_MACRO]
+
+[MACRO] DENO_MCP_TOOL_CALL %out_ptr, %out_len, %out_status, %body, %body_len
+    __dmcp_call_ptr_slot = stack_alloc 8
+    __dmcp_call_len_slot = stack_alloc 8
+    %out_status = call @sa_deno_plugin_mcp_tool_call(&%body, %body_len, &__dmcp_call_ptr_slot, &__dmcp_call_len_slot)
+    %out_ptr = load __dmcp_call_ptr_slot+0 as ptr
+    %out_len = load __dmcp_call_len_slot+0 as u64
+[END_MACRO]
+
+[MACRO] DENO_MCP_RESOURCE_READ %out_ptr, %out_len, %out_status, %body, %body_len
+    __dmcp_res_ptr_slot = stack_alloc 8
+    __dmcp_res_len_slot = stack_alloc 8
+    %out_status = call @sa_deno_plugin_mcp_resource_read(&%body, %body_len, &__dmcp_res_ptr_slot, &__dmcp_res_len_slot)
+    %out_ptr = load __dmcp_res_ptr_slot+0 as ptr
+    %out_len = load __dmcp_res_len_slot+0 as u64
 [END_MACRO]
 
 [MACRO] DENO_JSONRPC_PARAMS_STRING_LITERAL %out_ptr, %out_len, %out_status, %body, %body_len, %key, %key_len, %fallback, %fallback_len, %emit_null_if_missing
