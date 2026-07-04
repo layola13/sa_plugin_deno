@@ -3,8 +3,33 @@
 @import "sa_http_client.sai"
 @import "sa_http_server.sai"
 @import "sa_std/io.sai"
+@import "sa_std/net.sa"
 @import "sa_std/process.sai"
 @import "sa_std/time.sai"
+
+[MACRO] DENO_WS_ACCEPT_KEY %out_status, %out_len, %key, %key_len, %buf, %cap
+    EXPAND NET_WS_ACCEPT_KEY %out_status, %out_len, %key, %key_len, %buf, %cap
+[END_MACRO]
+
+[MACRO] DENO_WS_FRAME_PARSE %out_status, %out_fin, %out_opcode, %out_masked, %out_payload_offset, %out_payload_len, %out_frame_len, %out_mask, %data, %data_len
+    EXPAND NET_WS_FRAME_PARSE %out_status, %out_fin, %out_opcode, %out_masked, %out_payload_offset, %out_payload_len, %out_frame_len, %out_mask, %data, %data_len
+[END_MACRO]
+
+[MACRO] DENO_WS_UNMASK %out_status, %payload, %payload_len, %mask
+    EXPAND NET_WS_UNMASK %out_status, %payload, %payload_len, %mask
+[END_MACRO]
+
+[MACRO] DENO_WS_FRAME_BUILD %out_status, %out_len, %opcode, %fin, %payload, %payload_len, %mask, %buf, %cap
+    EXPAND NET_WS_FRAME_BUILD %out_status, %out_len, %opcode, %fin, %payload, %payload_len, %mask, %buf, %cap
+[END_MACRO]
+
+[MACRO] DENO_WS_FRAME_BUILD_UNMASKED %out_status, %out_len, %opcode, %fin, %payload, %payload_len, %buf, %cap
+    EXPAND NET_WS_FRAME_BUILD_UNMASKED %out_status, %out_len, %opcode, %fin, %payload, %payload_len, %buf, %cap
+[END_MACRO]
+
+[MACRO] DENO_URL_PARSE %out_status, %out_port, %url, %url_len, %scheme_buf, %scheme_cap, %scheme_len, %host_buf, %host_cap, %host_len, %path_buf, %path_cap, %path_len
+    EXPAND NET_URL_PARSE %out_status, %out_port, %url, %url_len, %scheme_buf, %scheme_cap, %scheme_len, %host_buf, %host_cap, %host_len, %path_buf, %path_cap, %path_len
+[END_MACRO]
 
 [MACRO] DENO_HOSTNAME %out_ptr, %out_len, %out_status
     __h_ptr_slot = stack_alloc 8
