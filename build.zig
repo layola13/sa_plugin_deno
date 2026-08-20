@@ -9,21 +9,27 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-
     const root_module = b.createModule(.{
         .root_source_file = b.path("src/plugin.zig"),
         .target = target,
         .optimize = optimize,
         .link_libc = true,
     });
-
     root_module.addImport("plugin_api", plugin_api);
-
-    const lib = b.addLibrary(.{
-        .name = "deno",
-        .root_module = root_module,
-        .linkage = .dynamic,
-    });
-
+    const lib = b.addLibrary(.{ .name = "deno", .root_module = root_module, .linkage = .dynamic });
     b.installArtifact(lib);
+    if (target.result.os.tag == .windows) {
+        const test_module = b.createModule(.{
+            .root_source_file = b.path("tests/deno_windows_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        test_module.addImport("deno", root_module);
+        test_module.addImport("plugin_api", plugin_api);
+        const tests = b.addTest(.{ .root_module = test_module });
+        const run_tests = b.addRunArtifact(tests);
+        if (b.args) |args| run_tests.addArgs(args);
+        const test_step = b.step("test", "Run Windows Deno plugin tests");
+        test_step.dependOn(&run_tests.step);
+    }
 }

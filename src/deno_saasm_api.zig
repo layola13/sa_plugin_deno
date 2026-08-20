@@ -79,9 +79,13 @@ pub export fn sa_deno_plugin_free_buffer(ptr: ?[*]const u8, len: u64) u32 {
 
 // --- 1. Hostname ---
 pub export fn sa_deno_plugin_hostname(out_ptr: ?*?[*]const u8, out_len: ?*u64) u32 {
-    const uname = std.posix.uname();
-    const nodename = std.mem.sliceTo(&uname.nodename, 0);
-    const owned = std.heap.page_allocator.dupe(u8, nodename) catch return 2;
+    const nodename = if (comptime builtin.os.tag == .windows)
+        (std.process.getEnvVarOwned(std.heap.page_allocator, "COMPUTERNAME") catch return 2)
+    else blk: {
+        const uname = std.posix.uname();
+        break :blk try std.heap.page_allocator.dupe(u8, std.mem.sliceTo(&uname.nodename, 0));
+    };
+    const owned = if (comptime builtin.os.tag == .windows) nodename else nodename;
     out_ptr.?.* = owned.ptr;
     out_len.?.* = owned.len;
     return 0;
@@ -89,8 +93,12 @@ pub export fn sa_deno_plugin_hostname(out_ptr: ?*?[*]const u8, out_len: ?*u64) u
 
 // --- 2. OS Release ---
 pub export fn sa_deno_plugin_os_release(out_ptr: ?*?[*]const u8, out_len: ?*u64) u32 {
-    const uname = std.posix.uname();
-    const release = std.mem.sliceTo(&uname.release, 0);
+    const release = if (comptime builtin.os.tag == .windows)
+        "Windows"
+    else blk: {
+        const uname = std.posix.uname();
+        break :blk std.mem.sliceTo(&uname.release, 0);
+    };
     const owned = std.heap.page_allocator.dupe(u8, release) catch return 2;
     out_ptr.?.* = owned.ptr;
     out_len.?.* = owned.len;
@@ -183,6 +191,13 @@ pub export fn sa_deno_plugin_system_memory_info(out_ptr: ?*?[*]const u8, out_len
 
 // --- 6. Network Interfaces ---
 pub export fn sa_deno_plugin_network_interfaces(out_ptr: ?*?[*]const u8, out_len: ?*u64) u32 {
+    if (comptime builtin.os.tag == .windows) {
+        const empty = std.heap.page_allocator.dupe(u8, "[]") catch return 2;
+        out_ptr.?.* = empty.ptr;
+        out_len.?.* = empty.len;
+        return 0;
+    }
+
     var ifap: ?*struct_ifaddrs = null;
     if (getifaddrs(&ifap) != 0) return 2;
     defer {
@@ -297,29 +312,30 @@ pub export fn sa_deno_plugin_network_interfaces(out_ptr: ?*?[*]const u8, out_len
     out_ptr.?.* = owned.ptr;
     out_len.?.* = owned.len;
     return 0;
+
 }
 
 // --- 7. PID ---
 pub export fn sa_deno_plugin_pid(out_pid: ?*u32) u32 {
-    out_pid.?.* = @intCast(getpid());
+    out_pid.?.* = if (comptime builtin.os.tag == .windows) std.os.windows.GetCurrentProcessId() else @intCast(getpid());
     return 0;
 }
 
 // --- 8. PPID ---
 pub export fn sa_deno_plugin_ppid(out_ppid: ?*u32) u32 {
-    out_ppid.?.* = @intCast(getppid());
+    out_ppid.?.* = if (comptime builtin.os.tag == .windows) 0 else @intCast(getppid());
     return 0;
 }
 
 // --- 9. UID ---
 pub export fn sa_deno_plugin_uid(out_uid: ?*u32) u32 {
-    out_uid.?.* = @intCast(getuid());
+    out_uid.?.* = if (comptime builtin.os.tag == .windows) 0 else @intCast(getuid());
     return 0;
 }
 
 // --- 10. GID ---
 pub export fn sa_deno_plugin_gid(out_gid: ?*u32) u32 {
-    out_gid.?.* = @intCast(getgid());
+    out_gid.?.* = if (comptime builtin.os.tag == .windows) 0 else @intCast(getgid());
     return 0;
 }
 
@@ -343,7 +359,7 @@ pub export fn sa_deno_plugin_memory_usage(out_ptr: ?*?[*]const u8, out_len: ?*u6
     const rss_pages_str = it.next() orelse return 2;
     const rss_pages = std.fmt.parseInt(u64, rss_pages_str, 10) catch return 2;
 
-    const page_size: u64 = @intCast(getpagesize());
+    const page_size: u64 = if (comptime builtin.os.tag == .windows) std.heap.page_size_min else @intCast(getpagesize());
     const rss = rss_pages * page_size;
 
     var out_buf: [256]u8 = undefined;
@@ -362,6 +378,12 @@ pub export fn sa_deno_plugin_env_get(key_ptr: ?[*]const u8, key_len: u64, out_pt
     const key_z = std.heap.page_allocator.dupeZ(u8, key) catch return 2;
     defer std.heap.page_allocator.free(key_z);
 
+    if (comptime builtin.os.tag == .windows) {
+        const owned = std.process.getEnvVarOwned(std.heap.page_allocator, key) catch return 1;
+        out_ptr.?.* = owned.ptr;
+        out_len.?.* = owned.len;
+        return 0;
+    }
     const value = getenv(key_z.ptr) orelse return 1; // 1 means not found (null in Deno)
     const val_slice = std.mem.span(value);
     const owned = std.heap.page_allocator.dupe(u8, val_slice) catch return 2;
@@ -381,6 +403,7 @@ pub export fn sa_deno_plugin_env_set(key_ptr: ?[*]const u8, key_len: u64, val_pt
     const val_z = std.heap.page_allocator.dupeZ(u8, value) catch return 2;
     defer std.heap.page_allocator.free(val_z);
 
+    if (comptime builtin.os.tag == .windows) return 2;
     if (setenv(key_z.ptr, val_z.ptr, 1) != 0) return 2;
     return 0;
 }
@@ -392,6 +415,7 @@ pub export fn sa_deno_plugin_env_delete(key_ptr: ?[*]const u8, key_len: u64) u32
     const key_z = std.heap.page_allocator.dupeZ(u8, key) catch return 2;
     defer std.heap.page_allocator.free(key_z);
 
+    if (comptime builtin.os.tag == .windows) return 2;
     if (unsetenv(key_z.ptr) != 0) return 2;
     return 0;
 }

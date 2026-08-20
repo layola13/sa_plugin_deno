@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 fn longestSuffixPrefix(text: []const u8, prefix: []const u8) usize {
     if (text.len == 0 or prefix.len == 0) return 0;
@@ -2554,6 +2555,13 @@ fn readMcpOutputUntilResults(allocator: std.mem.Allocator, stdout_file: std.fs.F
     while (true) {
         if (try mcpOutputHasAllResultIds(allocator, out.items, expected_ids)) return try out.toOwnedSlice();
         if (std.time.milliTimestamp() >= deadline_ms) return error.McpReadTimeout;
+
+        if (comptime builtin.os.tag == .windows) {
+            const n = try stdout_file.read(&buf);
+            if (n == 0) break;
+            try out.appendSlice(buf[0..n]);
+            continue;
+        }
 
         var fds = [_]std.posix.pollfd{.{
             .fd = stdout_file.handle,
