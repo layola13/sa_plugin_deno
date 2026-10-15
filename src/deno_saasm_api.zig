@@ -189,7 +189,7 @@ pub export fn sa_deno_plugin_network_interfaces(out_ptr: ?*?[*]const u8, out_len
         if (ifap) |ptr| freeifaddrs(ptr);
     }
 
-    var list = std.ArrayList(u8).init(std.heap.page_allocator);
+    var list = std.array_list.Managed(u8).init(std.heap.page_allocator);
     errdefer list.deinit();
     list.append('[') catch return 2;
 
@@ -626,7 +626,7 @@ pub export fn sa_deno_plugin_read_dir_json(path_ptr: ?[*]const u8, path_len: u64
     var dir = std.fs.cwd().openDir(path_z, .{ .iterate = true }) catch return 2;
     defer dir.close();
 
-    var list = std.ArrayList(u8).init(std.heap.page_allocator);
+    var list = std.array_list.Managed(u8).init(std.heap.page_allocator);
     errdefer list.deinit();
     list.append('[') catch return 2;
 
