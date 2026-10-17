@@ -26,4 +26,9 @@ pub fn build(b: *std.Build) void {
     });
 
     b.installArtifact(lib);
+
+    const tests = b.addTest(.{ .root_module = root_module });
+    const run_tests = b.addRunArtifact(tests);
+    const test_step = b.step("test", "Run plugin tests");
+    test_step.dependOn(&run_tests.step);
 }
