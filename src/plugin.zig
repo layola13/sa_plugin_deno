@@ -99,3 +99,8 @@ pub export const saasm_plugin_descriptor_v1: plugin_api.PluginDescriptor = descr
 pub export fn saasm_plugin_descriptor_v1_fn(out: *plugin_api.PluginDescriptor) callconv(.c) void {
     out.* = descriptor;
 }
+
+test {
+    std.testing.refAllDecls(@import("deno_saasm_api.zig"));
+    std.testing.refAllDecls(@import("hubproxy_compat.zig"));
+}

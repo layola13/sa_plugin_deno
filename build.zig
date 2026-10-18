@@ -17,7 +17,14 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
 
+    const sio_module = b.createModule(.{
+        .root_source_file = b.path("../sci/src/sa_io.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     root_module.addImport("plugin_api", plugin_api);
+    root_module.addImport("sio", sio_module);
 
     const lib = b.addLibrary(.{
         .name = "deno",

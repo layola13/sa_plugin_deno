@@ -1,4 +1,5 @@
 const std = @import("std");
+const sio = @import("sio");
 
 fn longestSuffixPrefix(text: []const u8, prefix: []const u8) usize {
     if (text.len == 0 or prefix.len == 0) return 0;
@@ -76,14 +77,22 @@ const ThoughtStreamSplitter = struct {
     }
 };
 
-fn appendJsonString(writer: anytype, text: []const u8) !void {
-    try std.json.stringify(text, .{}, writer);
+fn appendJsonString(out: *std.array_list.Managed(u8), text: []const u8) !void {
+    try jsonStringifyToList(text, .{}, out);
+}
+
+fn jsonStringifyToList(value: anytype, opts: anytype, out: *std.array_list.Managed(u8)) !void {
+    _ = opts;
+    var aw: std.Io.Writer.Allocating = .init(out.allocator);
+    defer aw.deinit();
+    try std.json.Stringify.value(value, .{}, &aw.writer);
+    try out.appendSlice(aw.written());
 }
 
 fn jsonStringLiteralAlloc(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
     var out = std.array_list.Managed(u8).init(allocator);
     errdefer out.deinit();
-    try appendJsonString(out.writer(), text);
+    try appendJsonString(&out, text);
     return try out.toOwnedSlice();
 }
 
@@ -339,7 +348,6 @@ fn appendReasoningDelta(
     text: []const u8,
 ) !void {
     if (text.len == 0) return;
-    const writer = out.writer();
     if (reasoning_done.*) {
         reasoning_started.* = false;
         reasoning_done.* = false;
@@ -349,19 +357,19 @@ fn appendReasoningDelta(
         next_output_index.* += 1;
         try out.appendSlice("event: response.output_item.added\n");
         try out.appendSlice("data: {\"type\":\"response.output_item.added\",\"output_index\":");
-        try writer.print("{}", .{reasoning_output_index.*});
+        try out.print("{}", .{reasoning_output_index.*});
         try out.appendSlice(",\"item\":{\"id\":\"think_chat_fb\",\"type\":\"reasoning\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"\"}]}}\n\n");
         try out.appendSlice("event: response.reasoning_summary_part.added\n");
         try out.appendSlice("data: {\"type\":\"response.reasoning_summary_part.added\",\"item_id\":\"think_chat_fb\",\"output_index\":");
-        try writer.print("{}", .{reasoning_output_index.*});
+        try out.print("{}", .{reasoning_output_index.*});
         try out.appendSlice(",\"summary_index\":0}\n\n");
         reasoning_started.* = true;
     }
     try out.appendSlice("event: response.reasoning_summary_text.delta\n");
     try out.appendSlice("data: {\"type\":\"response.reasoning_summary_text.delta\",\"item_id\":\"think_chat_fb\",\"output_index\":");
-    try writer.print("{}", .{reasoning_output_index.*});
+    try out.print("{}", .{reasoning_output_index.*});
     try out.appendSlice(",\"summary_index\":0,\"delta\":");
-    try appendJsonString(writer, text);
+    try appendJsonString(out, text);
     try out.appendSlice("}\n\n");
 }
 
@@ -374,14 +382,13 @@ fn appendReasoningDone(
 ) !void {
     if (!reasoning_started) return;
     if (reasoning_done.*) return;
-    const writer = out.writer();
     try out.appendSlice("event: response.output_item.done\n");
     try out.appendSlice("data: {\"type\":\"response.output_item.done\",\"output_index\":");
-    try writer.print("{}", .{reasoning_output_index});
+    try out.print("{}", .{reasoning_output_index});
     try out.appendSlice(",\"item\":{\"id\":\"think_chat_fb\",\"type\":\"reasoning\",\"summary\":[{\"type\":\"summary_text\",\"text\":");
-    try appendJsonString(writer, reasoning_text);
+    try appendJsonString(out, reasoning_text);
     try out.appendSlice("}],\"encrypted_content\":null,\"content\":[{\"type\":\"reasoning_text\",\"text\":");
-    try appendJsonString(writer, reasoning_text);
+    try appendJsonString(out, reasoning_text);
     try out.appendSlice("}]}}\n\n");
     reasoning_done.* = true;
 }
@@ -395,33 +402,31 @@ fn appendMessageDelta(
     text: []const u8,
 ) !void {
     if (text.len == 0) return;
-    const writer = out.writer();
     if (!message_started.*) {
         message_output_index.* = next_output_index.*;
         next_output_index.* += 1;
         try out.appendSlice("event: response.output_item.added\n");
         try out.appendSlice("data: {\"type\":\"response.output_item.added\",\"output_index\":");
-        try writer.print("{}", .{message_output_index.*});
+        try out.print("{}", .{message_output_index.*});
         try out.appendSlice(",\"item\":{\"id\":\"msg_chat_fb\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"\"}]}}\n\n");
         message_started.* = true;
     }
     try message_text.appendSlice(text);
     try out.appendSlice("event: response.output_text.delta\n");
     try out.appendSlice("data: {\"type\":\"response.output_text.delta\",\"item_id\":\"msg_chat_fb\",\"output_index\":");
-    try writer.print("{}", .{message_output_index.*});
+    try out.print("{}", .{message_output_index.*});
     try out.appendSlice(",\"content_index\":0,\"delta\":");
-    try appendJsonString(writer, text);
+    try appendJsonString(out, text);
     try out.appendSlice("}\n\n");
 }
 
 fn appendMessageDone(out: *std.array_list.Managed(u8), message_started: bool, message_output_index: u64, message_text: []const u8) !void {
     if (!message_started) return;
-    const writer = out.writer();
     try out.appendSlice("event: response.output_item.done\n");
     try out.appendSlice("data: {\"type\":\"response.output_item.done\",\"output_index\":");
-    try writer.print("{}", .{message_output_index});
+    try out.print("{}", .{message_output_index});
     try out.appendSlice(",\"item\":{\"id\":\"msg_chat_fb\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":");
-    try appendJsonString(writer, message_text);
+    try appendJsonString(out, message_text);
     try out.appendSlice("}]}}\n\n");
 }
 
@@ -537,7 +542,7 @@ fn isSensitiveEnvPath(path: []const u8) bool {
 
 fn appendCommandArguments(out_arguments: *std.array_list.Managed(u8), command: []const u8) !void {
     try out_arguments.appendSlice("{\"cmd\":");
-    try appendJsonString(out_arguments.writer(), command);
+    try appendJsonString(out_arguments, command);
     try out_arguments.append('}');
 }
 
@@ -817,23 +822,22 @@ fn appendNormalizedToolCall(out: *std.array_list.Managed(u8), req_body: []const 
     );
     if (!ok_norm) return;
 
-    const writer = out.writer();
     try out.appendSlice("event: response.output_item.done\n");
     try out.appendSlice("data: {\"type\":\"response.output_item.done\",\"item\":{\"id\":\"tc_chat_fb_");
-    try writer.print("{}", .{call.index});
+    try out.print("{}", .{call.index});
     try out.appendSlice("\",\"type\":\"function_call\",\"call_id\":");
     if (call.call_id.items.len != 0) {
-        try appendJsonString(writer, call.call_id.items);
+        try appendJsonString(out, call.call_id.items);
     } else {
-        try appendJsonString(writer, normalized_name.items);
+        try appendJsonString(out, normalized_name.items);
     }
     try out.appendSlice(",\"name\":");
-    try appendJsonString(writer, normalized_name.items);
+    try appendJsonString(out, normalized_name.items);
     try out.appendSlice(",\"arguments\":");
-    try appendJsonString(writer, normalized_args.items);
+    try appendJsonString(out, normalized_args.items);
     if (normalized_namespace.items.len != 0) {
         try out.appendSlice(",\"namespace\":");
-        try appendJsonString(writer, normalized_namespace.items);
+        try appendJsonString(out, normalized_namespace.items);
         try out.appendSlice(",\"output_kind\":\"function_call_output\"");
     }
     try out.appendSlice("}}\n\n");
@@ -857,22 +861,21 @@ fn appendNormalizedToolCallJson(out: *std.array_list.Managed(u8), req_body: []co
     );
     if (!ok_norm) return false;
 
-    const writer = out.writer();
     try out.appendSlice("{\"id\":\"tc_chat_fb_");
-    try writer.print("{}", .{call.index});
+    try out.print("{}", .{call.index});
     try out.appendSlice("\",\"type\":\"function_call\",\"call_id\":");
     if (call.call_id.items.len != 0) {
-        try appendJsonString(writer, call.call_id.items);
+        try appendJsonString(out, call.call_id.items);
     } else {
-        try appendJsonString(writer, normalized_name.items);
+        try appendJsonString(out, normalized_name.items);
     }
     try out.appendSlice(",\"name\":");
-    try appendJsonString(writer, normalized_name.items);
+    try appendJsonString(out, normalized_name.items);
     try out.appendSlice(",\"arguments\":");
-    try appendJsonString(writer, normalized_args.items);
+    try appendJsonString(out, normalized_args.items);
     if (normalized_namespace.items.len != 0) {
         try out.appendSlice(",\"namespace\":");
-        try appendJsonString(writer, normalized_namespace.items);
+        try appendJsonString(out, normalized_namespace.items);
         try out.appendSlice(",\"output_kind\":\"function_call_output\"");
     }
     try out.append('}');
@@ -917,25 +920,23 @@ fn appendChatUsageJson(out: *std.array_list.Managed(u8), usage: ?std.json.Value)
     } else prompt_tokens + completion_tokens;
     const cached_tokens = if (usage) |u| jsonU64Value(jsonObjectGetValue(jsonObjectGetValue(u, "prompt_tokens_details") orelse .null, "cached_tokens")) else 0;
     const reasoning_tokens = if (usage) |u| jsonU64Value(jsonObjectGetValue(jsonObjectGetValue(u, "completion_tokens_details") orelse .null, "reasoning_tokens")) else 0;
-    try out.writer().print(
+    try out.print(
         "\"usage\":{{\"input_tokens\":{},\"input_tokens_details\":{{\"cached_tokens\":{}}},\"output_tokens\":{},\"output_tokens_details\":{{\"reasoning_tokens\":{}}},\"total_tokens\":{}}}",
         .{ prompt_tokens, cached_tokens, completion_tokens, reasoning_tokens, total_tokens },
     );
 }
 
 fn appendChatJsonReasoningItem(out: *std.array_list.Managed(u8), text: []const u8) !void {
-    const writer = out.writer();
     try out.appendSlice("{\"type\":\"reasoning\",\"summary\":[{\"type\":\"summary_text\",\"text\":");
-    try appendJsonString(writer, text);
+    try appendJsonString(out, text);
     try out.appendSlice("}],\"encrypted_content\":null,\"content\":[{\"type\":\"reasoning_text\",\"text\":");
-    try appendJsonString(writer, text);
+    try appendJsonString(out, text);
     try out.appendSlice("}]}");
 }
 
 fn appendChatJsonMessageItem(out: *std.array_list.Managed(u8), text: []const u8) !void {
-    const writer = out.writer();
     try out.appendSlice("{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":");
-    try appendJsonString(writer, text);
+    try appendJsonString(out, text);
     try out.appendSlice("}]}");
 }
 
@@ -978,7 +979,6 @@ fn denoChatJsonToResponses(chat_body: []const u8, req_body: []const u8) ![]u8 {
 
     var out = std.array_list.Managed(u8).init(std.heap.page_allocator);
     errdefer out.deinit();
-    const writer = out.writer();
     try out.appendSlice("{\"id\":\"resp_chat_fb\",\"object\":\"response\",\"output\":[");
     var output_count: usize = 0;
     if (reasoning.items.len != 0) {
@@ -1025,7 +1025,7 @@ fn denoChatJsonToResponses(chat_body: []const u8, req_body: []const u8) ![]u8 {
     }
 
     try out.appendSlice("],\"output_text\":");
-    try appendJsonString(writer, trimmed_visible);
+    try appendJsonString(&out, trimmed_visible);
     try out.append(',');
     try appendChatUsageJson(&out, if (jsonObjectGetValue(parsed.value, "usage")) |usage| usage else null);
     try out.appendSlice(",\"status\":\"completed\"}");
@@ -1106,17 +1106,16 @@ fn isNativeReasoningType(item_type: []const u8) bool {
 }
 
 fn appendNativeReasoningItem(out: *std.array_list.Managed(u8), id: []const u8, text: []const u8) !void {
-    const writer = out.writer();
     try out.appendSlice("{\"id\":");
     if (id.len != 0) {
-        try appendJsonString(writer, id);
+        try appendJsonString(out, id);
     } else {
-        try appendJsonString(writer, "rs_native_json");
+        try appendJsonString(out, "rs_native_json");
     }
     try out.appendSlice(",\"type\":\"reasoning\",\"summary\":[{\"type\":\"summary_text\",\"text\":");
-    try appendJsonString(writer, text);
+    try appendJsonString(out, text);
     try out.appendSlice("}],\"encrypted_content\":null,\"content\":[{\"type\":\"reasoning_text\",\"text\":");
-    try appendJsonString(writer, text);
+    try appendJsonString(out, text);
     try out.appendSlice("}]}");
 }
 
@@ -1151,13 +1150,13 @@ fn appendNativeMessageItem(
                         if (split.visible.len != 0) {
                             if (content_count != 0) try visible_content.append(',');
                             try visible_content.appendSlice("{\"type\":\"output_text\",\"text\":");
-                            try appendJsonString(visible_content.writer(), split.visible);
+                            try appendJsonString(&visible_content, split.visible);
                             try visible_content.append('}');
                             content_count += 1;
                         }
                     } else {
                         if (content_count != 0) try visible_content.append(',');
-                        try std.json.stringify(part, .{}, visible_content.writer());
+                        try jsonStringifyToList(part, .{}, &visible_content);
                         content_count += 1;
                     }
                 }
@@ -1173,13 +1172,12 @@ fn appendNativeMessageItem(
     }
 
     try appendOutputComma(out, output_count);
-    const writer = out.writer();
     try out.appendSlice("{\"type\":\"message\",\"role\":");
     const role = jsonStringValue(jsonObjectGetValue(item, "role"));
-    try appendJsonString(writer, if (role.len != 0) role else "assistant");
+    try appendJsonString(out, if (role.len != 0) role else "assistant");
     if (jsonStringValue(jsonObjectGetValue(item, "id")).len != 0) {
         try out.appendSlice(",\"id\":");
-        try appendJsonString(writer, jsonStringValue(jsonObjectGetValue(item, "id")));
+        try appendJsonString(out, jsonStringValue(jsonObjectGetValue(item, "id")));
     }
     try out.appendSlice(",\"content\":[");
     try out.appendSlice(visible_content.items);
@@ -1228,7 +1226,7 @@ fn appendNativeNormalizedOutput(
                         continue;
                     }
                     try appendOutputComma(out, &output_count);
-                    try std.json.stringify(item, .{}, out.writer());
+                    try jsonStringifyToList(item, .{}, out);
                 }
             },
             else => {},
@@ -1266,7 +1264,7 @@ fn appendNativeFunctionCallWithNamespace(
 ) !void {
     const object = switch (item) {
         .object => |object| object,
-        else => return std.json.stringify(item, .{}, out.writer()),
+        else => return jsonStringifyToList(item, .{}, out),
     };
     try out.append('{');
     var field_count: usize = 0;
@@ -1279,36 +1277,36 @@ fn appendNativeFunctionCallWithNamespace(
             continue;
         }
         if (field_count != 0) try out.append(',');
-        try appendJsonString(out.writer(), entry.key_ptr.*);
+        try appendJsonString(out, entry.key_ptr.*);
         try out.append(':');
         if (std.mem.eql(u8, entry.key_ptr.*, "arguments")) {
             const arguments = jsonStringValue(entry.value_ptr.*);
             if (arguments.len != 0) {
                 if (try normalizeResponsesArgumentsString(allocator, arguments)) |normalized_arguments| {
-                    try std.json.stringify(normalized_arguments, .{}, out.writer());
+                    try jsonStringifyToList(normalized_arguments, .{}, out);
                 } else {
-                    try std.json.stringify(entry.value_ptr.*, .{}, out.writer());
+                    try jsonStringifyToList(entry.value_ptr.*, .{}, out);
                 }
             } else {
-                try std.json.stringify(entry.value_ptr.*, .{}, out.writer());
+                try jsonStringifyToList(entry.value_ptr.*, .{}, out);
             }
         } else {
-            try std.json.stringify(entry.value_ptr.*, .{}, out.writer());
+            try jsonStringifyToList(entry.value_ptr.*, .{}, out);
         }
         field_count += 1;
     }
     if (field_count != 0) try out.append(',');
     try out.appendSlice("\"name\":");
-    try appendJsonString(out.writer(), split.tool);
+    try appendJsonString(out, split.tool);
     try out.appendSlice(",\"namespace\":");
-    try appendJsonString(out.writer(), split.namespace);
+    try appendJsonString(out, split.namespace);
     try out.appendSlice(",\"output_kind\":\"function_call_output\"}");
 }
 
 fn appendNativeToolCallWithOutputKind(allocator: std.mem.Allocator, out: *std.array_list.Managed(u8), item: std.json.Value, output_kind: []const u8) !void {
     const object = switch (item) {
         .object => |object| object,
-        else => return std.json.stringify(item, .{}, out.writer()),
+        else => return jsonStringifyToList(item, .{}, out),
     };
     try out.append('{');
     var field_count: usize = 0;
@@ -1316,27 +1314,27 @@ fn appendNativeToolCallWithOutputKind(allocator: std.mem.Allocator, out: *std.ar
     while (it.next()) |entry| {
         if (std.mem.eql(u8, entry.key_ptr.*, "output_kind")) continue;
         if (field_count != 0) try out.append(',');
-        try appendJsonString(out.writer(), entry.key_ptr.*);
+        try appendJsonString(out, entry.key_ptr.*);
         try out.append(':');
         if (std.mem.eql(u8, entry.key_ptr.*, "arguments")) {
             const arguments = jsonStringValue(entry.value_ptr.*);
             if (arguments.len != 0) {
                 if (try normalizeResponsesArgumentsString(allocator, arguments)) |normalized_arguments| {
-                    try std.json.stringify(normalized_arguments, .{}, out.writer());
+                    try jsonStringifyToList(normalized_arguments, .{}, out);
                 } else {
-                    try std.json.stringify(entry.value_ptr.*, .{}, out.writer());
+                    try jsonStringifyToList(entry.value_ptr.*, .{}, out);
                 }
             } else {
-                try std.json.stringify(entry.value_ptr.*, .{}, out.writer());
+                try jsonStringifyToList(entry.value_ptr.*, .{}, out);
             }
         } else {
-            try std.json.stringify(entry.value_ptr.*, .{}, out.writer());
+            try jsonStringifyToList(entry.value_ptr.*, .{}, out);
         }
         field_count += 1;
     }
     if (field_count != 0) try out.append(',');
     try out.appendSlice("\"output_kind\":");
-    try appendJsonString(out.writer(), output_kind);
+    try appendJsonString(out, output_kind);
     try out.append('}');
 }
 
@@ -1407,15 +1405,15 @@ fn denoResponsesJsonNormalizeWithRequest(body: []const u8, req_body: []const u8)
     while (it.next()) |entry| {
         if (std.mem.eql(u8, entry.key_ptr.*, "output") or std.mem.eql(u8, entry.key_ptr.*, "output_text")) continue;
         if (field_count != 0) try out.append(',');
-        try appendJsonString(out.writer(), entry.key_ptr.*);
+        try appendJsonString(&out, entry.key_ptr.*);
         try out.append(':');
-        try std.json.stringify(entry.value_ptr.*, .{}, out.writer());
+        try jsonStringifyToList(entry.value_ptr.*, .{}, &out);
         field_count += 1;
     }
     if (field_count != 0) try out.append(',');
     try appendNativeNormalizedOutput(std.heap.page_allocator, &out, root.get("output"), output_text_split.reasoning, req_body);
     try out.appendSlice(",\"output_text\":");
-    try appendJsonString(out.writer(), output_text_split.visible);
+    try appendJsonString(&out, output_text_split.visible);
     try out.append('}');
     return try out.toOwnedSlice();
 }
@@ -1456,7 +1454,7 @@ fn jsonBoolValue(value: ?std.json.Value, default_value: bool) bool {
 
 fn appendJsonFieldName(out: *std.array_list.Managed(u8), field_count: *usize, name: []const u8) !void {
     if (field_count.* != 0) try out.append(',');
-    try appendJsonString(out.writer(), name);
+    try appendJsonString(out, name);
     try out.append(':');
     field_count.* += 1;
 }
@@ -1496,20 +1494,19 @@ fn responseContentTextOnlyAlloc(allocator: std.mem.Allocator, content: std.json.
 }
 
 fn appendMappedResponseContentPart(out: *std.array_list.Managed(u8), part: std.json.Value) !void {
-    const writer = out.writer();
     const part_type = jsonStringValue(jsonObjectGetValue(part, "type"));
     if (std.mem.eql(u8, part_type, "input_text") or
         std.mem.eql(u8, part_type, "text") or
         std.mem.eql(u8, part_type, "output_text"))
     {
         try out.appendSlice("{\"type\":\"text\",\"text\":");
-        try appendJsonString(writer, jsonStringValue(jsonObjectGetValue(part, "text")));
+        try appendJsonString(out, jsonStringValue(jsonObjectGetValue(part, "text")));
         try out.append('}');
         return;
     }
     if (std.mem.eql(u8, part_type, "input_image")) {
         try out.appendSlice("{\"type\":\"image_url\",\"image_url\":{\"url\":");
-        try appendJsonString(writer, jsonStringValue(jsonObjectGetValue(part, "image_url")));
+        try appendJsonString(out, jsonStringValue(jsonObjectGetValue(part, "image_url")));
         try out.appendSlice("}}");
         return;
     }
@@ -1517,10 +1514,10 @@ fn appendMappedResponseContentPart(out: *std.array_list.Managed(u8), part: std.j
         try out.appendSlice("{\"type\":\"image_url\",\"image_url\":");
         const image_url = jsonObjectGetValue(part, "image_url") orelse .null;
         switch (image_url) {
-            .object => try std.json.stringify(image_url, .{}, writer),
+            .object => try jsonStringifyToList(image_url, .{}, out),
             .string => |url| {
                 try out.appendSlice("{\"url\":");
-                try appendJsonString(writer, url);
+                try appendJsonString(out, url);
                 try out.append('}');
             },
             else => try out.appendSlice("{\"url\":\"\"}"),
@@ -1528,7 +1525,7 @@ fn appendMappedResponseContentPart(out: *std.array_list.Managed(u8), part: std.j
         try out.append('}');
         return;
     }
-    try std.json.stringify(part, .{}, writer);
+    try jsonStringifyToList(part, .{}, out);
 }
 
 fn appendResponseContentAsChat(
@@ -1537,7 +1534,7 @@ fn appendResponseContentAsChat(
     content: std.json.Value,
 ) !bool {
     if (try responseContentTextOnlyAlloc(allocator, content)) |text| {
-        try appendJsonString(out.writer(), text);
+        try appendJsonString(out, text);
         return text.len != 0;
     }
 
@@ -1620,7 +1617,7 @@ fn collectResponseToolCallNames(
 fn appendChatMessagePrefix(out: *std.array_list.Managed(u8), message_count: *usize, role: []const u8) !void {
     if (message_count.* != 0) try out.append(',');
     try out.appendSlice("{\"role\":");
-    try appendJsonString(out.writer(), role);
+    try appendJsonString(out, role);
     try out.appendSlice(",\"content\":");
     message_count.* += 1;
 }
@@ -1680,14 +1677,14 @@ fn appendResponseToolCallAsChat(
         if (call_count != 0) try messages.append(',');
         try messages.appendSlice("{\"id\":");
         if (call_id.len != 0) {
-            try appendJsonString(messages.writer(), call_id);
+            try appendJsonString(messages, call_id);
         } else {
-            try messages.writer().print("\"call_{}\"", .{index.*});
+            try messages.print("\"call_{}\"", .{index.*});
         }
         try messages.appendSlice(",\"type\":\"function\",\"function\":{\"name\":");
-        try appendJsonString(messages.writer(), chat_name);
+        try appendJsonString(messages, chat_name);
         try messages.appendSlice(",\"arguments\":");
-        try appendJsonString(messages.writer(), chat_arguments);
+        try appendJsonString(messages, chat_arguments);
         try messages.appendSlice("}}");
         call_count += 1;
     }
@@ -1713,7 +1710,7 @@ fn appendResponseToolOutputAsChat(
     var output_text = jsonStringValue(jsonObjectGetValue(item, "output"));
     if (output_text.len == 0) {
         if (jsonObjectGetValue(item, "output")) |output| {
-            const owned_output = try std.json.stringifyAlloc(allocator, output, .{});
+            const owned_output = try std.json.Stringify.valueAlloc(allocator, output, .{});
             output_text = owned_output;
         } else {
             output_text = jsonStringValue(jsonObjectGetValue(item, "content"));
@@ -1721,11 +1718,11 @@ fn appendResponseToolOutputAsChat(
     }
     if (output_text.len == 0) return;
     try appendChatMessagePrefix(messages, message_count, "tool");
-    try appendJsonString(messages.writer(), output_text);
+    try appendJsonString(messages, output_text);
     const call_id = jsonStringValue(jsonObjectGetValue(item, "call_id"));
     if (call_id.len != 0) {
         try messages.appendSlice(",\"tool_call_id\":");
-        try appendJsonString(messages.writer(), call_id);
+        try appendJsonString(messages, call_id);
     }
     const explicit_name = std.mem.trim(u8, jsonStringValue(jsonObjectGetValue(item, "name")), " \t\r\n");
     const name = if (explicit_name.len != 0) explicit_name else blk: {
@@ -1734,7 +1731,7 @@ fn appendResponseToolOutputAsChat(
     };
     if (name.len != 0) {
         try messages.appendSlice(",\"name\":");
-        try appendJsonString(messages.writer(), name);
+        try appendJsonString(messages, name);
     }
     try messages.append('}');
 }
@@ -1777,9 +1774,9 @@ fn appendNormalizedChatTool(
         defer prefixed.deinit();
         try prefixed.appendSlice(namespace_prefix);
         try prefixed.appendSlice(raw_name);
-        try appendJsonString(out.writer(), prefixed.items);
+        try appendJsonString(out, prefixed.items);
     } else {
-        try appendJsonString(out.writer(), raw_name);
+        try appendJsonString(out, raw_name);
     }
 
     const description = blk: {
@@ -1789,14 +1786,14 @@ fn appendNormalizedChatTool(
     };
     if (description.len != 0) {
         try out.appendSlice(",\"description\":");
-        try appendJsonString(out.writer(), description);
+        try appendJsonString(out, description);
     }
     if (jsonObjectGetValue(source, "parameters")) |parameters| {
         try out.appendSlice(",\"parameters\":");
-        try std.json.stringify(parameters, .{}, out.writer());
+        try jsonStringifyToList(parameters, .{}, out);
     } else if (jsonObjectGetValue(tool, "parameters")) |parameters| {
         try out.appendSlice(",\"parameters\":");
-        try std.json.stringify(parameters, .{}, out.writer());
+        try jsonStringifyToList(parameters, .{}, out);
     }
     const has_strict = jsonObjectGetValue(source, "strict") != null or jsonObjectGetValue(tool, "strict") != null;
     if (has_strict) {
@@ -1832,17 +1829,17 @@ fn appendResponseFormatFromText(out: *std.array_list.Managed(u8), field_count: *
     if (std.mem.eql(u8, format_type, "json_schema")) {
         try out.appendSlice("{\"type\":\"json_schema\",\"json_schema\":{\"name\":");
         const name = jsonStringValue(jsonObjectGetValue(format, "name"));
-        try appendJsonString(out.writer(), if (name.len != 0) name else "codex_output_schema");
+        try appendJsonString(out, if (name.len != 0) name else "codex_output_schema");
         if (jsonObjectGetValue(format, "schema")) |schema| {
             try out.appendSlice(",\"schema\":");
-            try std.json.stringify(schema, .{}, out.writer());
+            try jsonStringifyToList(schema, .{}, out);
         }
         try out.appendSlice(",\"strict\":");
         try out.appendSlice(if (jsonBoolValue(jsonObjectGetValue(format, "strict"), false)) "true" else "false");
         try out.appendSlice("}}");
         return;
     }
-    try std.json.stringify(format, .{}, out.writer());
+    try jsonStringifyToList(format, .{}, out);
 }
 
 fn shouldSkipResponsesFallbackField(key: []const u8) bool {
@@ -1918,7 +1915,7 @@ fn denoResponsesChatFallbackRequest(body: []const u8, default_model: []const u8,
         };
         if (top_text.len != 0) {
             try appendChatMessagePrefix(&messages, &message_count, "user");
-            try appendJsonString(messages.writer(), top_text);
+            try appendJsonString(&messages, top_text);
             try messages.append('}');
         }
     }
@@ -1926,7 +1923,7 @@ fn denoResponsesChatFallbackRequest(body: []const u8, default_model: []const u8,
         var with_system = std.array_list.Managed(u8).init(allocator);
         var system_count: usize = 0;
         try appendChatMessagePrefix(&with_system, &system_count, "system");
-        try appendJsonString(with_system.writer(), system_texts.items);
+        try appendJsonString(&with_system, system_texts.items);
         try with_system.append('}');
         if (messages.items.len != 0) try with_system.append(',');
         try with_system.appendSlice(messages.items);
@@ -1941,11 +1938,11 @@ fn denoResponsesChatFallbackRequest(body: []const u8, default_model: []const u8,
     while (it.next()) |entry| {
         if (shouldSkipResponsesFallbackField(entry.key_ptr.*)) continue;
         try appendJsonFieldName(&out, &field_count, entry.key_ptr.*);
-        try std.json.stringify(entry.value_ptr.*, .{}, out.writer());
+        try jsonStringifyToList(entry.value_ptr.*, .{}, &out);
     }
     try appendResponseFormatFromText(&out, &field_count, root.get("text"));
     try appendJsonFieldName(&out, &field_count, "model");
-    try appendJsonString(out.writer(), model);
+    try appendJsonString(&out, model);
     try appendJsonFieldName(&out, &field_count, "messages");
     try out.append('[');
     try out.appendSlice(messages.items);
@@ -1973,7 +1970,7 @@ fn normalizeResponsesArgumentsString(allocator: std.mem.Allocator, arguments: []
     if (server.len == 0) return null;
     const denormalized = try denormalizeMcpServerNameAlloc(allocator, server);
     server_ptr.* = .{ .string = denormalized };
-    return try std.json.stringifyAlloc(allocator, args_value, .{});
+    return try std.json.Stringify.valueAlloc(allocator, args_value, .{});
 }
 
 fn normalizeResponsesRequestArgumentsString(allocator: std.mem.Allocator, arguments: []const u8) !?[]u8 {
@@ -1988,7 +1985,7 @@ fn normalizeResponsesRequestArgumentsString(allocator: std.mem.Allocator, argume
     const normalized = try normalizeMcpServerNameAlloc(allocator, server);
     if (std.mem.eql(u8, normalized, server)) return null;
     server_ptr.* = .{ .string = normalized };
-    return try std.json.stringifyAlloc(allocator, args_value, .{});
+    return try std.json.Stringify.valueAlloc(allocator, args_value, .{});
 }
 
 fn normalizeResponsesRequestValue(
@@ -2006,9 +2003,9 @@ fn normalizeResponsesRequestValue(
                     const raw_name = std.mem.trim(u8, jsonStringValue(object.get("name")), " \t\r\n");
                     if (!std.mem.startsWith(u8, raw_name, server)) {
                         const full_name = try std.mem.concat(allocator, u8, &.{ server, raw_name });
-                        try object.put("name", .{ .string = full_name });
+                        try object.put(allocator, "name", .{ .string = full_name });
                     }
-                    try object.put("type", .{ .string = "function_call" });
+                    try object.put(allocator, "type", .{ .string = "function_call" });
                     changed = true;
                 }
             }
@@ -2051,7 +2048,7 @@ fn normalizeResponsesRequestValue(
                     break :blk map.get(call_id) orelse "";
                 };
                 if (name.len != 0) {
-                    try object.put("name", .{ .string = name });
+                    try object.put(allocator, "name", .{ .string = name });
                     changed = true;
                 }
             }
@@ -2093,7 +2090,7 @@ fn denoResponsesRequestNormalize(body: []const u8) ![]u8 {
         else => {},
     }
     if (!changed) return std.heap.page_allocator.dupe(u8, body);
-    return try std.json.stringifyAlloc(std.heap.page_allocator, value, .{});
+    return try std.json.Stringify.valueAlloc(std.heap.page_allocator, value, .{});
 }
 
 fn normalizeResponsesEventData(allocator: std.mem.Allocator, data: []const u8, req_body: []const u8) !?[]u8 {
@@ -2117,9 +2114,8 @@ fn normalizeResponsesEventData(allocator: std.mem.Allocator, data: []const u8, r
         if (text.items.len != 0) {
             var out = std.array_list.Managed(u8).init(allocator);
             errdefer out.deinit();
-            const writer = out.writer();
-            try out.appendSlice("{\"type\":");
-            try appendJsonString(writer, jsonStringValue(root.get("type")));
+                    try out.appendSlice("{\"type\":");
+            try appendJsonString(&out, jsonStringValue(root.get("type")));
             try out.appendSlice(",\"item\":");
             try appendNativeReasoningItem(&out, jsonStringValue(item.get("id")), text.items);
             try out.append('}');
@@ -2142,20 +2138,20 @@ fn normalizeResponsesEventData(allocator: std.mem.Allocator, data: []const u8, r
     if (nativeFunctionCallNeedsNamespaceNormalize(item_ptr.*, req_body)) {
         const name = jsonStringValue(item.get("name"));
         const split = splitMcpNamespace(name).?;
-        item.put("name", .{ .string = split.tool }) catch return null;
-        item.put("namespace", .{ .string = split.namespace }) catch return null;
-        item.put("output_kind", .{ .string = "function_call_output" }) catch return null;
+        item.put(allocator, "name", .{ .string = split.tool }) catch return null;
+        item.put(allocator, "namespace", .{ .string = split.namespace }) catch return null;
+        item.put(allocator, "output_kind", .{ .string = "function_call_output" }) catch return null;
         changed = true;
     } else {
         const existing_output_kind = jsonStringValue(item.get("output_kind"));
         if (!std.mem.eql(u8, existing_output_kind, output_kind)) {
-            item.put("output_kind", .{ .string = output_kind }) catch return null;
+            item.put(allocator, "output_kind", .{ .string = output_kind }) catch return null;
             changed = true;
         }
     }
 
     if (!changed) return null;
-    return try std.json.stringifyAlloc(allocator, value, .{});
+    return try std.json.Stringify.valueAlloc(allocator, value, .{});
 }
 
 fn appendNormalizedResponsesSseBlock(out: *std.array_list.Managed(u8), event_line: ?[]const u8, data: []const u8, req_body: []const u8) !void {
@@ -2180,7 +2176,7 @@ fn denoResponsesSseNormalizeWithRequest(sse_body: []const u8, req_body: []const 
 
     var line_it = std.mem.splitScalar(u8, sse_body, '\n');
     while (line_it.next()) |raw_line| {
-        const line = std.mem.trimRight(u8, raw_line, "\r");
+        const line = std.mem.trimEnd(u8, raw_line, "\r");
         if (std.mem.startsWith(u8, line, "event:")) {
             if (data_buffer.items.len != 0) {
                 try appendNormalizedResponsesSseBlock(&out, event_line, data_buffer.items, req_body);
@@ -2193,7 +2189,7 @@ fn denoResponsesSseNormalizeWithRequest(sse_body: []const u8, req_body: []const 
             continue;
         }
         if (std.mem.startsWith(u8, line, "data:")) {
-            const data = std.mem.trimLeft(u8, line[5..], " \t");
+            const data = std.mem.trimStart(u8, line[5..], " \t");
             try data_buffer.appendSlice(data);
             continue;
         }
@@ -2355,9 +2351,9 @@ fn denoChatSseToResponses(chat_body: []const u8, req_body: []const u8) ![]u8 {
 
     var line_it = std.mem.splitScalar(u8, chat_body, '\n');
     while (line_it.next()) |raw_line| {
-        const line = std.mem.trimRight(u8, raw_line, "\r");
+        const line = std.mem.trimEnd(u8, raw_line, "\r");
         if (std.mem.startsWith(u8, line, "data:")) {
-            const data = std.mem.trimLeft(u8, line[5..], " \t");
+            const data = std.mem.trimStart(u8, line[5..], " \t");
             if (!std.mem.eql(u8, data, "[DONE]")) {
                 try data_buffer.appendSlice(data);
             }
@@ -2517,7 +2513,7 @@ fn mcpResultFieldJsonAlloc(allocator: std.mem.Allocator, output: []const u8, exp
         const selected = if (field_name) |name| jsonObjectGetValue(result, name) orelse .null else result;
         var out = std.array_list.Managed(u8).init(allocator);
         errdefer out.deinit();
-        try std.json.stringify(selected, .{}, out.writer());
+        try jsonStringifyToList(selected, .{}, &out);
         return try out.toOwnedSlice();
     }
     return null;
@@ -2545,18 +2541,18 @@ fn mcpOutputHasAllResultIds(allocator: std.mem.Allocator, output: []const u8, ex
     return true;
 }
 
-fn readMcpOutputUntilResults(allocator: std.mem.Allocator, stdout_file: std.fs.File, expected_ids: []const i64) ![]u8 {
+fn readMcpOutputUntilResults(allocator: std.mem.Allocator, stdout_file: sio.File, expected_ids: []const i64) ![]u8 {
     var out = std.array_list.Managed(u8).init(allocator);
     errdefer out.deinit();
-    const deadline_ms = std.time.milliTimestamp() + 10_000;
+    const deadline_ns = sio.nanoTimestamp() + 10_000 * 1_000_000;
     var buf: [8192]u8 = undefined;
 
     while (true) {
         if (try mcpOutputHasAllResultIds(allocator, out.items, expected_ids)) return try out.toOwnedSlice();
-        if (std.time.milliTimestamp() >= deadline_ms) return error.McpReadTimeout;
+        if (sio.nanoTimestamp() >= deadline_ns) return error.McpReadTimeout;
 
         var fds = [_]std.posix.pollfd{.{
-            .fd = stdout_file.handle,
+            .fd = stdout_file.inner.handle,
             .events = std.posix.POLL.IN | std.posix.POLL.HUP | std.posix.POLL.ERR,
             .revents = 0,
         }};
@@ -2576,7 +2572,7 @@ fn readMcpOutputUntilResults(allocator: std.mem.Allocator, stdout_file: std.fs.F
     return try out.toOwnedSlice();
 }
 
-fn closeMcpChild(child: *std.process.Child) void {
+fn closeMcpChild(child: *sio.Child) void {
     if (child.stdin) |stdin_file| {
         stdin_file.close();
         child.stdin = null;
@@ -2585,8 +2581,16 @@ fn closeMcpChild(child: *std.process.Child) void {
         stdout_file.close();
         child.stdout = null;
     }
-    _ = child.kill() catch {};
-    _ = child.wait() catch {};
+    if (child.stderr) |stderr_file| {
+        stderr_file.close();
+        child.stderr = null;
+    }
+    // NOTE(Zig 0.17): Child.kill already blocks+reaps; wait after kill
+    // panics (assert id != null). Kill once and drop inner.
+    if (child.inner != null) {
+        child.kill() catch {};
+        child.inner = null;
+    }
 }
 
 fn mcpToolsMapJsonAlloc(allocator: std.mem.Allocator, tools_result_json: []const u8) ![]u8 {
@@ -2606,9 +2610,9 @@ fn mcpToolsMapJsonAlloc(allocator: std.mem.Allocator, tools_result_json: []const
                 if (name.len == 0) continue;
                 if (!first) try out.append(',');
                 first = false;
-                try appendJsonString(out.writer(), name);
+                try appendJsonString(&out, name);
                 try out.append(':');
-                try std.json.stringify(tool, .{}, out.writer());
+                try jsonStringifyToList(tool, .{}, &out);
             }
         },
         else => {},
@@ -2716,7 +2720,7 @@ fn queryMcpStdioServer(allocator: std.mem.Allocator, name: []const u8, command: 
     try argv.append(command);
     try argv.appendSlice(args);
 
-    var child = std.process.Child.init(argv.items, allocator);
+    var child = sio.Child.init(argv.items, allocator);
     child.cwd = cwd;
     child.stdin_behavior = .Pipe;
     child.stdout_behavior = .Pipe;
@@ -2774,7 +2778,7 @@ fn queryMcpStdioToolCall(allocator: std.mem.Allocator, command: []const u8, args
     try argv.append(command);
     try argv.appendSlice(args);
 
-    var child = std.process.Child.init(argv.items, allocator);
+    var child = sio.Child.init(argv.items, allocator);
     child.cwd = cwd;
     child.stdin_behavior = .Pipe;
     child.stdout_behavior = .Pipe;
@@ -2793,7 +2797,7 @@ fn queryMcpStdioToolCall(allocator: std.mem.Allocator, command: []const u8, args
     var call_payload = std.array_list.Managed(u8).init(allocator);
     defer call_payload.deinit();
     try call_payload.appendSlice("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":");
-    try appendJsonString(call_payload.writer(), tool_name);
+    try appendJsonString(&call_payload, tool_name);
     try call_payload.appendSlice(",\"arguments\":");
     try call_payload.appendSlice(arguments_json);
     if (meta_json.len != 0) {
@@ -2821,7 +2825,7 @@ fn queryMcpStdioResourceRead(allocator: std.mem.Allocator, command: []const u8, 
     try argv.append(command);
     try argv.appendSlice(args);
 
-    var child = std.process.Child.init(argv.items, allocator);
+    var child = sio.Child.init(argv.items, allocator);
     child.cwd = cwd;
     child.stdin_behavior = .Pipe;
     child.stdout_behavior = .Pipe;
@@ -2840,7 +2844,7 @@ fn queryMcpStdioResourceRead(allocator: std.mem.Allocator, command: []const u8, 
     var read_payload = std.array_list.Managed(u8).init(allocator);
     defer read_payload.deinit();
     try read_payload.appendSlice("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"resources/read\",\"params\":{\"uri\":");
-    try appendJsonString(read_payload.writer(), uri);
+    try appendJsonString(&read_payload, uri);
     try read_payload.appendSlice("}}");
     try appendMcpJsonLine(&input, read_payload.items);
 
@@ -2875,7 +2879,7 @@ fn appendMcpStatusEntry(out: *std.array_list.Managed(u8), first: *bool, name: []
     if (!first.*) try out.append(',');
     first.* = false;
     try out.appendSlice("{\"name\":");
-    try appendJsonString(out.writer(), name);
+    try appendJsonString(out, name);
     try out.appendSlice(",\"serverInfo\":");
     if (pieces.server_info_json) |server_info| {
         try out.appendSlice(server_info);
@@ -2889,14 +2893,14 @@ fn appendMcpStatusEntry(out: *std.array_list.Managed(u8), first: *bool, name: []
     try out.appendSlice(",\"resourceTemplates\":");
     try out.appendSlice(pieces.resource_templates_json);
     try out.appendSlice(",\"authStatus\":");
-    try appendJsonString(out.writer(), mcpAuthStatusProtocolValue(auth_status));
+    try appendJsonString(out, mcpAuthStatusProtocolValue(auth_status));
     try out.append('}');
 }
 
 fn appendMcpStatusesFromConfig(out: *std.array_list.Managed(u8), first: *bool, config_path: []const u8, include_inventory: bool, page: *McpStatusPage) !void {
     const allocator = std.heap.page_allocator;
     const plugin_root = std.fs.path.dirname(config_path) orelse return;
-    const bytes = std.fs.cwd().readFileAlloc(allocator, config_path, 512 * 1024) catch return;
+    const bytes = sio.cwd().readFileAlloc(allocator, config_path, 512 * 1024) catch return;
     defer allocator.free(bytes);
     var parsed = std.json.parseFromSlice(std.json.Value, allocator, bytes, .{}) catch return;
     defer parsed.deinit();
@@ -2990,7 +2994,7 @@ fn mcpConfigObjectNameLessThan(_: void, left: std.json.Value, right: std.json.Va
 fn appendMcpStatusesFromCodexCli(out: *std.array_list.Managed(u8), first: *bool, include_inventory: bool, page: *McpStatusPage) !u64 {
     const allocator = std.heap.page_allocator;
     const argv = [_][]const u8{ "codex", "mcp", "list", "--json" };
-    const result = std.process.Child.run(.{
+    const result = sio.Child.run(.{
         .allocator = allocator,
         .argv = &argv,
         .max_output_bytes = 2 * 1024 * 1024,
@@ -2998,7 +3002,7 @@ fn appendMcpStatusesFromCodexCli(out: *std.array_list.Managed(u8), first: *bool,
     defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
     switch (result.term) {
-        .Exited => |code| if (code != 0) return 0,
+        .exited => |code| if (code != 0) return 0,
         else => return 0,
     }
     var parsed = std.json.parseFromSlice(std.json.Value, allocator, result.stdout, .{}) catch return 0;
@@ -3089,7 +3093,7 @@ fn mcpCallArgumentsJsonAlloc(allocator: std.mem.Allocator, params: std.json.Valu
                 .object, .array => {
                     var out = std.array_list.Managed(u8).init(allocator);
                     errdefer out.deinit();
-                    try std.json.stringify(parsed.value, .{}, out.writer());
+                    try jsonStringifyToList(parsed.value, .{}, &out);
                     return try out.toOwnedSlice();
                 },
                 else => return try allocator.dupe(u8, "{}"),
@@ -3099,7 +3103,7 @@ fn mcpCallArgumentsJsonAlloc(allocator: std.mem.Allocator, params: std.json.Valu
     }
     var out = std.array_list.Managed(u8).init(allocator);
     errdefer out.deinit();
-    try std.json.stringify(arguments, .{}, out.writer());
+    try jsonStringifyToList(arguments, .{}, &out);
     return try out.toOwnedSlice();
 }
 
@@ -3113,7 +3117,7 @@ fn mcpCallMetaJsonAlloc(allocator: std.mem.Allocator, params: std.json.Value) ![
         }
         var out = std.array_list.Managed(u8).init(allocator);
         errdefer out.deinit();
-        try std.json.stringify(meta, .{}, out.writer());
+        try jsonStringifyToList(meta, .{}, &out);
         return try out.toOwnedSlice();
     }
 
@@ -3128,14 +3132,14 @@ fn mcpCallMetaJsonAlloc(allocator: std.mem.Allocator, params: std.json.Value) ![
                 if (std.mem.eql(u8, entry.key_ptr.*, "threadId")) continue;
                 if (!first) try out.append(',');
                 first = false;
-                try appendJsonString(out.writer(), entry.key_ptr.*);
+                try appendJsonString(&out, entry.key_ptr.*);
                 try out.append(':');
-                try std.json.stringify(entry.value_ptr.*, .{}, out.writer());
+                try jsonStringifyToList(entry.value_ptr.*, .{}, &out);
             }
             if (!first) try out.append(',');
-            try appendJsonString(out.writer(), "threadId");
+            try appendJsonString(&out, "threadId");
             try out.append(':');
-            try appendJsonString(out.writer(), thread_id);
+            try appendJsonString(&out, thread_id);
             try out.append('}');
             return try out.toOwnedSlice();
         },
@@ -3143,14 +3147,14 @@ fn mcpCallMetaJsonAlloc(allocator: std.mem.Allocator, params: std.json.Value) ![
             var out = std.array_list.Managed(u8).init(allocator);
             errdefer out.deinit();
             try out.appendSlice("{\"threadId\":");
-            try appendJsonString(out.writer(), thread_id);
+            try appendJsonString(&out, thread_id);
             try out.append('}');
             return try out.toOwnedSlice();
         },
         else => {
             var out = std.array_list.Managed(u8).init(allocator);
             errdefer out.deinit();
-            try std.json.stringify(meta, .{}, out.writer());
+            try jsonStringifyToList(meta, .{}, &out);
             return try out.toOwnedSlice();
         },
     }
@@ -3177,7 +3181,7 @@ pub fn mcpResourceReadHasRequiredParams(body: []const u8) bool {
 
 fn mcpToolCallFromConfig(allocator: std.mem.Allocator, config_path: []const u8, requested_server: []const u8, tool_name: []const u8, arguments_json: []const u8, meta_json: []const u8) !?[]u8 {
     const plugin_root = std.fs.path.dirname(config_path) orelse return null;
-    const bytes = std.fs.cwd().readFileAlloc(allocator, config_path, 512 * 1024) catch return null;
+    const bytes = sio.cwd().readFileAlloc(allocator, config_path, 512 * 1024) catch return null;
     defer allocator.free(bytes);
     var parsed = std.json.parseFromSlice(std.json.Value, allocator, bytes, .{}) catch return null;
     defer parsed.deinit();
@@ -3221,7 +3225,7 @@ fn mcpToolCallFromConfig(allocator: std.mem.Allocator, config_path: []const u8, 
 
 fn mcpResourceReadFromConfig(allocator: std.mem.Allocator, config_path: []const u8, requested_server: []const u8, uri: []const u8) !?[]u8 {
     const plugin_root = std.fs.path.dirname(config_path) orelse return null;
-    const bytes = std.fs.cwd().readFileAlloc(allocator, config_path, 512 * 1024) catch return null;
+    const bytes = sio.cwd().readFileAlloc(allocator, config_path, 512 * 1024) catch return null;
     defer allocator.free(bytes);
     var parsed = std.json.parseFromSlice(std.json.Value, allocator, bytes, .{}) catch return null;
     defer parsed.deinit();
@@ -3295,7 +3299,7 @@ fn mcpToolCallFromCodexItem(allocator: std.mem.Allocator, item: std.json.Value, 
 
 fn mcpToolCallFromCodexCli(allocator: std.mem.Allocator, requested_server: []const u8, tool_name: []const u8, arguments_json: []const u8, meta_json: []const u8) !?[]u8 {
     const argv = [_][]const u8{ "codex", "mcp", "list", "--json" };
-    const result = std.process.Child.run(.{
+    const result = sio.Child.run(.{
         .allocator = allocator,
         .argv = &argv,
         .max_output_bytes = 2 * 1024 * 1024,
@@ -3303,7 +3307,7 @@ fn mcpToolCallFromCodexCli(allocator: std.mem.Allocator, requested_server: []con
     defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
     switch (result.term) {
-        .Exited => |code| if (code != 0) return null,
+        .exited => |code| if (code != 0) return null,
         else => return null,
     }
     var parsed = std.json.parseFromSlice(std.json.Value, allocator, result.stdout, .{}) catch return null;
@@ -3351,7 +3355,7 @@ fn mcpResourceReadFromCodexItem(allocator: std.mem.Allocator, item: std.json.Val
 
 fn mcpResourceReadFromCodexCli(allocator: std.mem.Allocator, requested_server: []const u8, uri: []const u8) !?[]u8 {
     const argv = [_][]const u8{ "codex", "mcp", "list", "--json" };
-    const result = std.process.Child.run(.{
+    const result = sio.Child.run(.{
         .allocator = allocator,
         .argv = &argv,
         .max_output_bytes = 2 * 1024 * 1024,
@@ -3359,7 +3363,7 @@ fn mcpResourceReadFromCodexCli(allocator: std.mem.Allocator, requested_server: [
     defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
     switch (result.term) {
-        .Exited => |code| if (code != 0) return null,
+        .exited => |code| if (code != 0) return null,
         else => return null,
     }
     var parsed = std.json.parseFromSlice(std.json.Value, allocator, result.stdout, .{}) catch return null;
@@ -3390,15 +3394,15 @@ pub fn mcpToolCall(body: []const u8) !?[]u8 {
     const allocator = std.heap.page_allocator;
     if (try mcpToolCallFromCodexCli(allocator, server, tool, arguments_json, meta_json)) |result| return result;
 
-    const codex_home = std.process.getEnvVarOwned(allocator, "CODEX_HOME") catch blk: {
-        const home = std.process.getEnvVarOwned(allocator, "HOME") catch return null;
+    const codex_home = sio.getEnvVarOwned(allocator, "CODEX_HOME") catch blk: {
+        const home = sio.getEnvVarOwned(allocator, "HOME") catch return null;
         defer allocator.free(home);
         break :blk try std.fs.path.join(allocator, &.{ home, ".codex" });
     };
     defer allocator.free(codex_home);
     const plugin_cache = try std.fs.path.join(allocator, &.{ codex_home, "plugins", "cache", "local-projects" });
     defer allocator.free(plugin_cache);
-    var dir = std.fs.openDirAbsolute(plugin_cache, .{ .iterate = true }) catch return null;
+    var dir = sio.openDirAbsolute(plugin_cache, .{ .iterate = true }) catch return null;
     defer dir.close();
     var walker = try dir.walk(allocator);
     defer walker.deinit();
@@ -3423,15 +3427,15 @@ pub fn mcpResourceRead(body: []const u8) !?[]u8 {
     const allocator = std.heap.page_allocator;
     if (try mcpResourceReadFromCodexCli(allocator, server, uri)) |result| return result;
 
-    const codex_home = std.process.getEnvVarOwned(allocator, "CODEX_HOME") catch blk: {
-        const home = std.process.getEnvVarOwned(allocator, "HOME") catch return null;
+    const codex_home = sio.getEnvVarOwned(allocator, "CODEX_HOME") catch blk: {
+        const home = sio.getEnvVarOwned(allocator, "HOME") catch return null;
         defer allocator.free(home);
         break :blk try std.fs.path.join(allocator, &.{ home, ".codex" });
     };
     defer allocator.free(codex_home);
     const plugin_cache = try std.fs.path.join(allocator, &.{ codex_home, "plugins", "cache", "local-projects" });
     defer allocator.free(plugin_cache);
-    var dir = std.fs.openDirAbsolute(plugin_cache, .{ .iterate = true }) catch return null;
+    var dir = sio.openDirAbsolute(plugin_cache, .{ .iterate = true }) catch return null;
     defer dir.close();
     var walker = try dir.walk(allocator);
     defer walker.deinit();
@@ -3451,8 +3455,8 @@ fn appendDiscoveredMcpStatuses(out: *std.array_list.Managed(u8), first: *bool, i
     const codex_count = try appendMcpStatusesFromCodexCli(out, first, include_inventory, page);
     if (codex_count != 0) return;
 
-    const codex_home = std.process.getEnvVarOwned(allocator, "CODEX_HOME") catch blk: {
-        const home = std.process.getEnvVarOwned(allocator, "HOME") catch return;
+    const codex_home = sio.getEnvVarOwned(allocator, "CODEX_HOME") catch blk: {
+        const home = sio.getEnvVarOwned(allocator, "HOME") catch return;
         defer allocator.free(home);
         break :blk try std.fs.path.join(allocator, &.{ home, ".codex" });
     };
@@ -3460,7 +3464,7 @@ fn appendDiscoveredMcpStatuses(out: *std.array_list.Managed(u8), first: *bool, i
 
     const plugin_cache = try std.fs.path.join(allocator, &.{ codex_home, "plugins", "cache", "local-projects" });
     defer allocator.free(plugin_cache);
-    var dir = std.fs.openDirAbsolute(plugin_cache, .{ .iterate = true }) catch return;
+    var dir = sio.openDirAbsolute(plugin_cache, .{ .iterate = true }) catch return;
     defer dir.close();
     var walker = try dir.walk(allocator);
     defer walker.deinit();
@@ -3487,7 +3491,7 @@ pub fn mcpServerStatusList(body: []const u8) ![]u8 {
     if (page.has_more) {
         const next_cursor = try std.fmt.allocPrint(std.heap.page_allocator, "{}", .{page.start + page.emitted});
         defer std.heap.page_allocator.free(next_cursor);
-        try appendJsonString(out.writer(), next_cursor);
+        try appendJsonString(&out, next_cursor);
     } else {
         try out.appendSlice("null");
     }

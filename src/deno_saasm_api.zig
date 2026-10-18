@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const hubproxy_compat = @import("hubproxy_compat.zig");
+const sio = @import("sio");
 
 // --- POSIX/C Signatures ---
 extern fn getpid() c_int;
@@ -54,18 +55,28 @@ fn returnOwnedBuffer(bytes: []u8, out_ptr: ?*?[*]const u8, out_len: ?*u64) u32 {
     return 0;
 }
 
-fn openFilePath(path: []const u8, flags: std.fs.File.OpenFlags) !std.fs.File {
+fn openFilePath(path: []const u8, flags: std.Io.Dir.OpenFileOptions) !sio.File {
     if (std.fs.path.isAbsolute(path)) {
-        return std.fs.openFileAbsolute(path, flags);
+        return sio.openFileAbsolute(path, flags);
     }
-    return std.fs.cwd().openFile(path, flags);
+    return sio.cwd().openFile(path, flags);
 }
 
-fn createFilePath(path: []const u8, flags: std.fs.File.CreateFlags) !std.fs.File {
+fn createFilePath(path: []const u8, flags: std.Io.Dir.CreateFileOptions) !sio.File {
     if (std.fs.path.isAbsolute(path)) {
-        return std.fs.createFileAbsolute(path, flags);
+        return sio.createFileAbsolute(path, flags);
     }
-    return std.fs.cwd().createFile(path, flags);
+    return sio.cwd().createFile(path, flags);
+}
+
+fn readFileShort(file: sio.File, buf: []u8) !usize {
+    var total: usize = 0;
+    while (total < buf.len) {
+        const n = try file.read(buf[total..]);
+        if (n == 0) break;
+        total += n;
+    }
+    return total;
 }
 
 // --- Helper: Free Buffer ---
@@ -99,10 +110,10 @@ pub export fn sa_deno_plugin_os_release(out_ptr: ?*?[*]const u8, out_len: ?*u64)
 
 // --- 3. OS Uptime ---
 pub export fn sa_deno_plugin_os_uptime(out_uptime: ?*f64) u32 {
-    var file = std.fs.openFileAbsolute("/proc/uptime", .{}) catch return 2;
+    var file = sio.openFileAbsolute("/proc/uptime", .{}) catch return 2;
     defer file.close();
     var buf: [64]u8 = undefined;
-    const n = file.readAll(&buf) catch return 2;
+    const n = readFileShort(file, &buf) catch return 2;
     const content = buf[0..n];
     const space_idx = std.mem.indexOfScalar(u8, content, ' ') orelse content.len;
     const uptime_str = std.mem.trim(u8, content[0..space_idx], " \t\r\n");
@@ -112,10 +123,10 @@ pub export fn sa_deno_plugin_os_uptime(out_uptime: ?*f64) u32 {
 
 // --- 4. Load Avg ---
 pub export fn sa_deno_plugin_loadavg(out_load: ?*f64) u32 {
-    var file = std.fs.openFileAbsolute("/proc/loadavg", .{}) catch return 2;
+    var file = sio.openFileAbsolute("/proc/loadavg", .{}) catch return 2;
     defer file.close();
     var buf: [64]u8 = undefined;
-    const n = file.readAll(&buf) catch return 2;
+    const n = readFileShort(file, &buf) catch return 2;
     const content = buf[0..n];
     var it = std.mem.tokenizeScalar(u8, content, ' ');
     const l1_str = it.next() orelse return 2;
@@ -134,10 +145,10 @@ pub export fn sa_deno_plugin_loadavg(out_load: ?*f64) u32 {
 
 // --- 5. System Memory Info ---
 pub export fn sa_deno_plugin_system_memory_info(out_ptr: ?*?[*]const u8, out_len: ?*u64) u32 {
-    var file = std.fs.openFileAbsolute("/proc/meminfo", .{}) catch return 2;
+    var file = sio.openFileAbsolute("/proc/meminfo", .{}) catch return 2;
     defer file.close();
     var buf: [2048]u8 = undefined;
-    const n = file.readAll(&buf) catch return 2;
+    const n = readFileShort(file, &buf) catch return 2;
     const content = buf[0..n];
 
     var total: u64 = 0;
@@ -273,9 +284,9 @@ pub export fn sa_deno_plugin_network_interfaces(out_ptr: ?*?[*]const u8, out_len
         const mac_path = std.fmt.bufPrint(&mac_path_buf, "/sys/class/net/{s}/address", .{name}) catch "";
         var mac_str: []const u8 = "00:00:00:00:00:00";
         if (mac_path.len != 0) {
-            if (std.fs.openFileAbsolute(mac_path, .{})) |mac_file| {
+            if (sio.openFileAbsolute(mac_path, .{})) |mac_file| {
                 defer mac_file.close();
-                if (mac_file.readAll(&mac_buf)) |mac_len| {
+                if (mac_file.read(&mac_buf)) |mac_len| {
                     mac_str = std.mem.trim(u8, mac_buf[0..mac_len], " \t\r\n");
                 } else |_| {}
             } else |_| {}
@@ -325,7 +336,7 @@ pub export fn sa_deno_plugin_gid(out_gid: ?*u32) u32 {
 
 // --- 11. Exec Path ---
 pub export fn sa_deno_plugin_exec_path(out_ptr: ?*?[*]const u8, out_len: ?*u64) u32 {
-    const path = std.fs.selfExePathAlloc(std.heap.page_allocator) catch return 2;
+    const path = sio.selfExePathAlloc(std.heap.page_allocator) catch return 2;
     out_ptr.?.* = path.ptr;
     out_len.?.* = path.len;
     return 0;
@@ -333,10 +344,10 @@ pub export fn sa_deno_plugin_exec_path(out_ptr: ?*?[*]const u8, out_len: ?*u64) 
 
 // --- 12. Memory Usage ---
 pub export fn sa_deno_plugin_memory_usage(out_ptr: ?*?[*]const u8, out_len: ?*u64) u32 {
-    var file = std.fs.openFileAbsolute("/proc/self/statm", .{}) catch return 2;
+    var file = sio.openFileAbsolute("/proc/self/statm", .{}) catch return 2;
     defer file.close();
     var buf: [64]u8 = undefined;
-    const n = file.readAll(&buf) catch return 2;
+    const n = readFileShort(file, &buf) catch return 2;
     const content = buf[0..n];
     var it = std.mem.tokenizeScalar(u8, content, ' ');
     _ = it.next() orelse return 2;
@@ -359,7 +370,7 @@ pub export fn sa_deno_plugin_memory_usage(out_ptr: ?*?[*]const u8, out_len: ?*u6
 pub export fn sa_deno_plugin_env_get(key_ptr: ?[*]const u8, key_len: u64, out_ptr: ?*?[*]const u8, out_len: ?*u64) u32 {
     if (key_ptr == null or key_len == 0) return 2;
     const key = key_ptr.?[0..key_len];
-    const key_z = std.heap.page_allocator.dupeZ(u8, key) catch return 2;
+    const key_z = std.heap.page_allocator.dupeSentinel(u8, key, 0) catch return 2;
     defer std.heap.page_allocator.free(key_z);
 
     const value = getenv(key_z.ptr) orelse return 1; // 1 means not found (null in Deno)
@@ -376,9 +387,9 @@ pub export fn sa_deno_plugin_env_set(key_ptr: ?[*]const u8, key_len: u64, val_pt
     const key = key_ptr.?[0..key_len];
     const value = if (val_ptr) |p| p[0..val_len] else &[_]u8{};
 
-    const key_z = std.heap.page_allocator.dupeZ(u8, key) catch return 2;
+    const key_z = std.heap.page_allocator.dupeSentinel(u8, key, 0) catch return 2;
     defer std.heap.page_allocator.free(key_z);
-    const val_z = std.heap.page_allocator.dupeZ(u8, value) catch return 2;
+    const val_z = std.heap.page_allocator.dupeSentinel(u8, value, 0) catch return 2;
     defer std.heap.page_allocator.free(val_z);
 
     if (setenv(key_z.ptr, val_z.ptr, 1) != 0) return 2;
@@ -389,7 +400,7 @@ pub export fn sa_deno_plugin_env_set(key_ptr: ?[*]const u8, key_len: u64, val_pt
 pub export fn sa_deno_plugin_env_delete(key_ptr: ?[*]const u8, key_len: u64) u32 {
     if (key_ptr == null or key_len == 0) return 2;
     const key = key_ptr.?[0..key_len];
-    const key_z = std.heap.page_allocator.dupeZ(u8, key) catch return 2;
+    const key_z = std.heap.page_allocator.dupeSentinel(u8, key, 0) catch return 2;
     defer std.heap.page_allocator.free(key_z);
 
     if (unsetenv(key_z.ptr) != 0) return 2;
@@ -400,7 +411,7 @@ pub export fn sa_deno_plugin_env_delete(key_ptr: ?[*]const u8, key_len: u64) u32
 pub export fn sa_deno_plugin_read_text_file(path_ptr: ?[*]const u8, path_len: u64, out_ptr: ?*?[*]const u8, out_len: ?*u64) u32 {
     if (path_ptr == null or path_len == 0) return 2;
     const path = path_ptr.?[0..path_len];
-    const path_z = std.heap.page_allocator.dupeZ(u8, path) catch return 2;
+    const path_z = std.heap.page_allocator.dupeSentinel(u8, path, 0) catch return 2;
     defer std.heap.page_allocator.free(path_z);
 
     var file = openFilePath(path_z, .{}) catch return 2;
@@ -410,7 +421,8 @@ pub export fn sa_deno_plugin_read_text_file(path_ptr: ?[*]const u8, path_len: u6
     const content = std.heap.page_allocator.alloc(u8, size) catch return 2;
     errdefer std.heap.page_allocator.free(content);
 
-    const read_bytes = file.readAll(content) catch return 2;
+    file.readAll(content) catch return 2;
+    const read_bytes = content.len;
     out_ptr.?.* = content.ptr;
     out_len.?.* = read_bytes;
     return 0;
@@ -419,7 +431,7 @@ pub export fn sa_deno_plugin_read_text_file(path_ptr: ?[*]const u8, path_len: u6
 pub export fn sa_deno_plugin_read_file_base64(path_ptr: ?[*]const u8, path_len: u64, out_ptr: ?*?[*]const u8, out_len: ?*u64) u32 {
     if (path_ptr == null or path_len == 0) return 2;
     const path = path_ptr.?[0..path_len];
-    const path_z = std.heap.page_allocator.dupeZ(u8, path) catch return 2;
+    const path_z = std.heap.page_allocator.dupeSentinel(u8, path, 0) catch return 2;
     defer std.heap.page_allocator.free(path_z);
 
     var file = openFilePath(path_z, .{}) catch return 2;
@@ -429,7 +441,8 @@ pub export fn sa_deno_plugin_read_file_base64(path_ptr: ?[*]const u8, path_len: 
     const content = std.heap.page_allocator.alloc(u8, size) catch return 2;
     defer std.heap.page_allocator.free(content);
 
-    const read_bytes = file.readAll(content) catch return 2;
+    file.readAll(content) catch return 2;
+    const read_bytes = content.len;
     const encoded_len = std.base64.standard.Encoder.calcSize(read_bytes);
     const encoded = std.heap.page_allocator.alloc(u8, encoded_len) catch return 2;
     _ = std.base64.standard.Encoder.encode(encoded, content[0..read_bytes]);
@@ -442,7 +455,7 @@ pub export fn sa_deno_plugin_read_file_base64(path_ptr: ?[*]const u8, path_len: 
 pub export fn sa_deno_plugin_write_text_file(path_ptr: ?[*]const u8, path_len: u64, data_ptr: ?[*]const u8, data_len: u64) u32 {
     if (path_ptr == null or path_len == 0) return 2;
     const path = path_ptr.?[0..path_len];
-    const path_z = std.heap.page_allocator.dupeZ(u8, path) catch return 2;
+    const path_z = std.heap.page_allocator.dupeSentinel(u8, path, 0) catch return 2;
     defer std.heap.page_allocator.free(path_z);
 
     var file = createFilePath(path_z, .{}) catch return 2;
@@ -456,7 +469,7 @@ pub export fn sa_deno_plugin_write_text_file(path_ptr: ?[*]const u8, path_len: u
 // --- 18. Random UUID ---
 pub export fn sa_deno_plugin_random_uuid(out_ptr: ?*?[*]const u8, out_len: ?*u64) u32 {
     var bytes: [16]u8 = undefined;
-    std.crypto.random.bytes(&bytes);
+    sio.io().random(&bytes);
     bytes[6] = (bytes[6] & 0x0f) | 0x40;
     bytes[8] = (bytes[8] & 0x3f) | 0x80;
 
@@ -478,11 +491,11 @@ pub export fn sa_deno_plugin_random_uuid(out_ptr: ?*?[*]const u8, out_len: ?*u64
 
 // --- 19. Args JSON ---
 pub export fn sa_deno_plugin_args_json(out_ptr: ?*?[*]const u8, out_len: ?*u64) u32 {
-    var args = std.process.argsAlloc(std.heap.page_allocator) catch return 2;
-    defer std.process.argsFree(std.heap.page_allocator, args);
+    var args = sio.argsAlloc(std.heap.page_allocator) catch return 2;
+    defer sio.argsFree(std.heap.page_allocator, args);
 
     const deno_args = if (args.len > 0) args[1..] else args[0..0];
-    const json = std.json.stringifyAlloc(std.heap.page_allocator, deno_args, .{}) catch return 2;
+    const json = std.json.Stringify.valueAlloc(std.heap.page_allocator, deno_args, .{}) catch return 2;
     out_ptr.?.* = json.ptr;
     out_len.?.* = json.len;
     return 0;
@@ -560,13 +573,13 @@ pub export fn sa_deno_plugin_build_json(out_ptr: ?*?[*]const u8, out_len: ?*u64)
 
 // --- 26. Now Milliseconds ---
 pub export fn sa_deno_plugin_now_ms(out_ms: ?*u64) u32 {
-    out_ms.?.* = @intCast(std.time.milliTimestamp());
+    out_ms.?.* = @intCast((@divTrunc(sio.nanoTimestamp(), 1000000)));
     return 0;
 }
 
 // --- 27. Now Nanoseconds ---
 pub export fn sa_deno_plugin_now_ns(out_ns: ?*u64) u32 {
-    out_ns.?.* = @intCast(std.time.nanoTimestamp());
+    out_ns.?.* = @intCast(sio.nanoTimestamp());
     return 0;
 }
 
@@ -574,13 +587,13 @@ pub export fn sa_deno_plugin_now_ns(out_ns: ?*u64) u32 {
 pub export fn sa_deno_plugin_mkdir(path_ptr: ?[*]const u8, path_len: u64, recursive: u8) u32 {
     if (path_ptr == null or path_len == 0) return 2;
     const path = path_ptr.?[0..path_len];
-    const path_z = std.heap.page_allocator.dupeZ(u8, path) catch return 2;
+    const path_z = std.heap.page_allocator.dupeSentinel(u8, path, 0) catch return 2;
     defer std.heap.page_allocator.free(path_z);
 
     if (recursive != 0) {
-        std.fs.cwd().makePath(path_z) catch return 2;
+        sio.cwd().makePath(path_z) catch return 2;
     } else {
-        std.fs.cwd().makeDir(path_z) catch return 2;
+        sio.cwd().makeDir(path_z) catch return 2;
     }
     return 0;
 }
@@ -589,14 +602,14 @@ pub export fn sa_deno_plugin_mkdir(path_ptr: ?[*]const u8, path_len: u64, recurs
 pub export fn sa_deno_plugin_remove(path_ptr: ?[*]const u8, path_len: u64, recursive: u8) u32 {
     if (path_ptr == null or path_len == 0) return 2;
     const path = path_ptr.?[0..path_len];
-    const path_z = std.heap.page_allocator.dupeZ(u8, path) catch return 2;
+    const path_z = std.heap.page_allocator.dupeSentinel(u8, path, 0) catch return 2;
     defer std.heap.page_allocator.free(path_z);
 
     if (recursive != 0) {
-        std.fs.cwd().deleteTree(path_z) catch return 2;
+        sio.cwd().deleteTree(path_z) catch return 2;
     } else {
-        std.fs.cwd().deleteFile(path_z) catch {
-            std.fs.cwd().deleteDir(path_z) catch return 2;
+        sio.cwd().deleteFile(path_z) catch {
+            sio.cwd().deleteDir(path_z) catch return 2;
         };
     }
     return 0;
@@ -607,12 +620,12 @@ pub export fn sa_deno_plugin_copy_file(src_ptr: ?[*]const u8, src_len: u64, dst_
     if (src_ptr == null or src_len == 0 or dst_ptr == null or dst_len == 0) return 2;
     const src = src_ptr.?[0..src_len];
     const dst = dst_ptr.?[0..dst_len];
-    const src_z = std.heap.page_allocator.dupeZ(u8, src) catch return 2;
+    const src_z = std.heap.page_allocator.dupeSentinel(u8, src, 0) catch return 2;
     defer std.heap.page_allocator.free(src_z);
-    const dst_z = std.heap.page_allocator.dupeZ(u8, dst) catch return 2;
+    const dst_z = std.heap.page_allocator.dupeSentinel(u8, dst, 0) catch return 2;
     defer std.heap.page_allocator.free(dst_z);
 
-    std.fs.cwd().copyFile(src_z, std.fs.cwd(), dst_z, .{}) catch return 2;
+    sio.cwd().copyFile(src_z, sio.cwd(), dst_z, .{}) catch return 2;
     return 0;
 }
 
@@ -620,10 +633,10 @@ pub export fn sa_deno_plugin_copy_file(src_ptr: ?[*]const u8, src_len: u64, dst_
 pub export fn sa_deno_plugin_read_dir_json(path_ptr: ?[*]const u8, path_len: u64, out_ptr: ?*?[*]const u8, out_len: ?*u64) u32 {
     if (path_ptr == null or path_len == 0) return 2;
     const path = path_ptr.?[0..path_len];
-    const path_z = std.heap.page_allocator.dupeZ(u8, path) catch return 2;
+    const path_z = std.heap.page_allocator.dupeSentinel(u8, path, 0) catch return 2;
     defer std.heap.page_allocator.free(path_z);
 
-    var dir = std.fs.cwd().openDir(path_z, .{ .iterate = true }) catch return 2;
+    var dir = sio.cwd().openDir(path_z, .{ .iterate = true }) catch return 2;
     defer dir.close();
 
     var list = std.array_list.Managed(u8).init(std.heap.page_allocator);
@@ -655,16 +668,16 @@ pub export fn sa_deno_plugin_read_dir_json(path_ptr: ?[*]const u8, path_len: u64
 pub export fn sa_deno_plugin_lstat_json(path_ptr: ?[*]const u8, path_len: u64, out_ptr: ?*?[*]const u8, out_len: ?*u64) u32 {
     if (path_ptr == null or path_len == 0) return 2;
     const path = path_ptr.?[0..path_len];
-    const path_z = std.heap.page_allocator.dupeZ(u8, path) catch return 2;
+    const path_z = std.heap.page_allocator.dupeSentinel(u8, path, 0) catch return 2;
     defer std.heap.page_allocator.free(path_z);
 
-    const stat = std.fs.cwd().statFile(path_z) catch return 2;
+    const stat = sio.cwd().statFile(path_z) catch return 2;
 
     const is_dir = stat.kind == .directory;
     const is_file = stat.kind == .file;
     const is_symlink = stat.kind == .sym_link;
-    const mtime = @divTrunc(stat.mtime, 1_000_000); // ms
-    const ctime = @divTrunc(stat.ctime, 1_000_000); // ms
+    const mtime = stat.mtime.toMilliseconds(); // ms
+    const ctime = stat.ctime.toMilliseconds(); // ms
 
     var out_buf: [256]u8 = undefined;
     const json = std.fmt.bufPrint(&out_buf, "{{\"createdAtMs\":{d},\"isDirectory\":{s},\"isFile\":{s},\"isSymlink\":{s},\"modifiedAtMs\":{d}}}", .{ ctime, if (is_dir) "true" else "false", if (is_file) "true" else "false", if (is_symlink) "true" else "false", mtime }) catch return 2;
@@ -680,7 +693,7 @@ pub export fn sa_deno_plugin_write_file_base64(path_ptr: ?[*]const u8, path_len:
     if (path_ptr == null or path_len == 0 or base64_ptr == null or base64_len == 0) return 2;
     const path = path_ptr.?[0..path_len];
     const base64 = base64_ptr.?[0..base64_len];
-    const path_z = std.heap.page_allocator.dupeZ(u8, path) catch return 2;
+    const path_z = std.heap.page_allocator.dupeSentinel(u8, path, 0) catch return 2;
     defer std.heap.page_allocator.free(path_z);
 
     const decoded_len = std.base64.standard.Decoder.calcSizeForSlice(base64) catch return 2;
@@ -723,7 +736,7 @@ pub export fn sa_deno_plugin_command_exec(
         }
     }
 
-    const run_res = std.process.Child.run(.{
+    const run_res = sio.Child.run(.{
         .allocator = allocator,
         .argv = argv,
         .cwd = cwd,
@@ -731,7 +744,7 @@ pub export fn sa_deno_plugin_command_exec(
     }) catch return 2;
 
     switch (run_res.term) {
-        .Exited => |code| out_code.* = code,
+        .exited => |code| out_code.* = code,
         else => out_code.* = 1,
     }
 
@@ -745,9 +758,7 @@ pub export fn sa_deno_plugin_command_exec(
 
 // --- 35. Get CWD (sa_deno_plugin_cwd) ---
 pub export fn sa_deno_plugin_cwd(out_ptr: ?*?[*]const u8, out_len: ?*u64) u32 {
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
-    const path = std.process.getCwd(&buf) catch return 2;
-    const owned = std.heap.page_allocator.dupe(u8, path) catch return 2;
+    const owned = sio.getCwdAlloc(std.heap.page_allocator) catch return 2;
     out_ptr.?.* = owned.ptr;
     out_len.?.* = owned.len;
     return 0;
@@ -757,9 +768,9 @@ pub export fn sa_deno_plugin_cwd(out_ptr: ?*?[*]const u8, out_len: ?*u64) u32 {
 pub export fn sa_deno_plugin_chdir(path_ptr: ?[*]const u8, path_len: u64) u32 {
     if (path_ptr == null or path_len == 0) return 2;
     const path = path_ptr.?[0..path_len];
-    const path_z = std.heap.page_allocator.dupeZ(u8, path) catch return 2;
+    const path_z = std.heap.page_allocator.dupeSentinel(u8, path, 0) catch return 2;
     defer std.heap.page_allocator.free(path_z);
-    std.process.changeCurDir(path_z) catch return 2;
+    sio.changeCurDir(path_z) catch return 2;
     return 0;
 }
 
@@ -791,7 +802,7 @@ pub export fn sa_deno_plugin_build_platform_family(out_ptr: ?*?[*]const u8, out_
 
 // --- 40. Date ISO (sa_deno_plugin_date_now_iso) ---
 pub export fn sa_deno_plugin_date_now_iso(out_ptr: ?*?[*]const u8, out_len: ?*u64) u32 {
-    const ms = std.time.milliTimestamp();
+    const ms = (@divTrunc(sio.nanoTimestamp(), 1000000));
     const secs = @divTrunc(ms, 1000);
     const msecs: u64 = @intCast(@mod(ms, 1000));
     const epoch_seconds = std.time.epoch.EpochSeconds{ .secs = @intCast(secs) };
@@ -821,9 +832,9 @@ pub export fn sa_deno_plugin_date_now_iso(out_ptr: ?*?[*]const u8, out_len: ?*u6
 pub export fn sa_deno_plugin_make_temp_dir(prefix_ptr: ?[*]const u8, prefix_len: u64, out_ptr: ?*?[*]const u8, out_len: ?*u64) u32 {
     const prefix = if (prefix_ptr) |p| p[0..prefix_len] else &[_]u8{};
     var random_bytes: [8]u8 = undefined;
-    std.crypto.random.bytes(&random_bytes);
+    sio.io().random(&random_bytes);
 
-    const tmp_dir_path = std.process.getEnvVarOwned(std.heap.page_allocator, "TMPDIR") catch std.process.getEnvVarOwned(std.heap.page_allocator, "TEMP") catch std.process.getEnvVarOwned(std.heap.page_allocator, "TMP") catch "/tmp";
+    const tmp_dir_path = sio.getEnvVarOwned(std.heap.page_allocator, "TMPDIR") catch sio.getEnvVarOwned(std.heap.page_allocator, "TEMP") catch sio.getEnvVarOwned(std.heap.page_allocator, "TMP") catch "/tmp";
     defer {
         if (!std.mem.eql(u8, tmp_dir_path, "/tmp")) {
             std.heap.page_allocator.free(tmp_dir_path);
@@ -833,7 +844,7 @@ pub export fn sa_deno_plugin_make_temp_dir(prefix_ptr: ?[*]const u8, prefix_len:
     const name = std.fmt.allocPrint(std.heap.page_allocator, "{s}/{s}{x}", .{ tmp_dir_path, prefix, std.mem.readInt(u64, &random_bytes, .big) }) catch return 2;
     errdefer std.heap.page_allocator.free(name);
 
-    std.fs.makeDirAbsolute(name) catch return 2;
+    std.Io.Dir.createDirAbsolute(sio.io(), name, .default_dir) catch return 2;
     out_ptr.?.* = name.ptr;
     out_len.?.* = name.len;
     return 0;
@@ -851,9 +862,9 @@ pub export fn sa_deno_plugin_make_temp_file(
     const prefix = if (prefix_ptr) |p| p[0..prefix_len] else &[_]u8{};
     const suffix = if (suffix_ptr) |p| p[0..suffix_len] else &[_]u8{};
     var random_bytes: [8]u8 = undefined;
-    std.crypto.random.bytes(&random_bytes);
+    sio.io().random(&random_bytes);
 
-    const tmp_dir_path = std.process.getEnvVarOwned(std.heap.page_allocator, "TMPDIR") catch std.process.getEnvVarOwned(std.heap.page_allocator, "TEMP") catch std.process.getEnvVarOwned(std.heap.page_allocator, "TMP") catch "/tmp";
+    const tmp_dir_path = sio.getEnvVarOwned(std.heap.page_allocator, "TMPDIR") catch sio.getEnvVarOwned(std.heap.page_allocator, "TEMP") catch sio.getEnvVarOwned(std.heap.page_allocator, "TMP") catch "/tmp";
     defer {
         if (!std.mem.eql(u8, tmp_dir_path, "/tmp")) {
             std.heap.page_allocator.free(tmp_dir_path);
@@ -863,7 +874,7 @@ pub export fn sa_deno_plugin_make_temp_file(
     const name = std.fmt.allocPrint(std.heap.page_allocator, "{s}/{s}{x}{s}", .{ tmp_dir_path, prefix, std.mem.readInt(u64, &random_bytes, .big), suffix }) catch return 2;
     errdefer std.heap.page_allocator.free(name);
 
-    var file = std.fs.createFileAbsolute(name, .{}) catch return 2;
+    var file = sio.createFileAbsolute(name, .{}) catch return 2;
     file.close();
 
     out_ptr.?.* = name.ptr;
