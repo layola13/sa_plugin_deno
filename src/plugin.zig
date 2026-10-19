@@ -104,3 +104,13 @@ test {
     std.testing.refAllDecls(@import("deno_saasm_api.zig"));
     std.testing.refAllDecls(@import("hubproxy_compat.zig"));
 }
+// NOTE(Zig 0.17): force analysis of imported export decls so ABI symbols are emitted.
+comptime {
+        for (std.meta.declarations(_api)) |d| {
+            const decl = @field(_api, d);
+            switch (@typeInfo(@TypeOf(decl))) {
+                .@"fn" => _ = &decl,
+                else => {},
+            }
+        }
+}
